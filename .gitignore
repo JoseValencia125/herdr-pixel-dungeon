@@ -1,0 +1,12 @@
+node_modules/
+.DS_Store
+.env*
+*.log
+*.pid
+coverage/
+.local/
+build/
+.build/
+*.app/
+*.dmg
+*.zip

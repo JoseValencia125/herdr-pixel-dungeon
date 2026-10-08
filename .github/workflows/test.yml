@@ -1,0 +1,11 @@
+name: Native macOS checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./scripts/build.sh
+      - run: '"build/Herdr Pixel Agents.app/Contents/MacOS/HerdrPixelAgents" --self-test'
