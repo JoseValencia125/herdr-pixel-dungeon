@@ -6,6 +6,12 @@ Built in **Swift, SwiftUI, AppKit and SpriteKit**. Each agent is an animated her
 
 Created by **Nacho Valencia**. All pixel art is original, drawn in Aseprite for this project. Inspired by **[Claude Dungeon](https://github.com/thousandsky2024/claude-pixel-agent-web)** by [thousandsky2024](https://github.com/thousandsky2024).
 
+<p align="center">
+  <img src="docs/media/demo.gif" width="460" alt="The widget in demo mode: six agents working, asking for attention, waiting and done">
+</p>
+
+<p align="center"><a href="docs/media/demo.mp4">Watch the full demo video</a> · <a href="docs/media/widget.png">Full-size screenshot</a></p>
+
 ## Build and open
 
 Requires macOS 13+, Xcode Command Line Tools (`xcode-select --install`) and [Herdr](https://herdr.dev) with `herdr api snapshot` support. Tested with Herdr 0.9.1.
@@ -31,15 +37,17 @@ Close the window to keep monitoring from the menu bar, where a pixel knight's he
 
 ## States and rooms
 
-| Herdr state | Room | Hero |
-| --- | --- | --- |
-| `working` | Forge: lit furnace, anvil and sparks | Attacking |
-| `blocked` | Sealed door: chains, keyhole seal, empty pedestal | Jumps on the rug under a red "!" |
-| `idle` | Inn room: bed, fireplace, moonlit window, sleeping cat | Waiting |
-| `done` | Treasure chamber: golden light, gem, open chest | Completion marker |
-| unknown | Foggy crossroads: three doors, broken signpost | Unknown |
+| Herdr state | | Room | Hero |
+| --- | --- | --- | --- |
+| `working` | <img src="docs/media/room_working.png" width="216" alt=""> | Forge: lit furnace, anvil and sparks | Attacking |
+| `blocked` | <img src="docs/media/room_blocked.png" width="216" alt=""> | Sealed door: chains, keyhole seal, empty pedestal | Jumps on the rug under a red "!" |
+| `idle` | <img src="docs/media/room_idle.png" width="216" alt=""> | Inn room: bed, fireplace, moonlit window, sleeping cat | Waiting |
+| `done` | <img src="docs/media/room_done.png" width="216" alt=""> | Treasure chamber: golden light, gem, open chest | Completion marker |
+| unknown | <img src="docs/media/room_unknown.png" width="216" alt=""> | Foggy crossroads: three doors, broken signpost | Unknown |
 
 All five rooms are one shared dungeon room that changes with the state. The source is `art/dungeon_rooms.aseprite`, with one tagged frame per state.
+
+<p align="center"><img src="docs/media/heroes.png" width="396" alt="The five heroes: coral wizard, monochrome knight, purple-hooded rogue, blue star cleric and green adventurer"></p>
 
 Each harness has its own classic hero, coloured after the tool's brand (no logos are reproduced): **claude** is a coral wizard, **codex** a monochrome knight, **kiro** a purple-hooded rogue with a ghost face, **gemini** a blue star cleric, and any other harness a green adventurer. Source: `art/heroes.aseprite`.
 
