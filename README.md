@@ -62,9 +62,17 @@ When the state changes the hero walks out through the door, the room changes beh
 
 All five rooms are one shared dungeon room that changes with the state. The source is `art/dungeon_rooms.aseprite`, with one tagged frame per state.
 
-<p align="center"><img src="docs/media/heroes.png" width="396" alt="The five heroes: coral wizard, monochrome knight, purple-hooded rogue, blue star cleric and green adventurer"></p>
+## Heroes
 
-Each harness has its own classic hero, coloured after the tool's brand (no logos are reproduced): **claude** is a coral wizard, **codex** a monochrome knight, **kiro** a purple-hooded rogue with a ghost face, **gemini** a blue star cleric, and any other harness a green adventurer. Source: `art/heroes.aseprite`.
+Each harness has its own classic hero, coloured after the tool's brand (no logos are reproduced). Source: `art/heroes.aseprite`, two rows per hero: idle (2 frames) and work (3 frames).
+
+| Harness | Hero | |
+| --- | :---: | --- |
+| **claude** (Claude Code) | <img src="docs/media/hero_claude.png" width="64" alt="Coral wizard"> | Coral wizard with a staff |
+| **codex** (OpenAI Codex) | <img src="docs/media/hero_codex.png" width="64" alt="Monochrome knight"> | Monochrome knight with sword and shield |
+| **kiro** (Amazon Kiro) | <img src="docs/media/hero_kiro.png" width="64" alt="Purple-hooded rogue"> | Purple-hooded rogue with a ghost face |
+| **gemini** (Google Gemini CLI) | <img src="docs/media/hero_gemini.png" width="64" alt="Blue star cleric"> | Blue star cleric |
+| any other | <img src="docs/media/hero_hero.png" width="64" alt="Green adventurer"> | Green adventurer |
 
 **What a working agent does.** For Claude Code agents the hero goes to the station that matches the last tool the agent called: it reads a book for `Read`, `Grep`, `Glob`, `WebSearch` and `WebFetch`, forges at the anvil for `Edit` and `Write`, brews potions for `Bash`, summons in a magic circle for `Task` (subagents), studies a scroll for todo lists and plans, and types at the laptop while thinking or writing. Codex and Kiro agents do the same from their own session logs, matched by the session ID Herdr reports: Codex's rollout (`~/.codex/sessions/…/rollout-…-<id>.jsonl`; a shell command that only looks at files counts as reading, `apply_patch` as forging, `update_plan` as planning) and Kiro's session (`~/.kiro/sessions/cli/<id>.jsonl`). Only tool names and commands' first word are read. Harnesses whose activity cannot be read (Gemini and the rest) make the rounds of every station rather than pretend to know.
 
