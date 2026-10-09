@@ -66,10 +66,12 @@ pub struct HudAction {
 /// rooms, and a search box over project, harness, branch, folder and activity.
 pub fn hud(ui: &mut Ui, monitor: &mut Monitor, state: &mut HudState) -> HudAction {
     let mut action = HudAction { toggle_log: false, compose: false };
+    // One column of rooms leaves no room for words: the "All" chip shows only its count.
+    let narrow = ui.available_width() < crate::scene::width_for(2) - 20.0;
     ui.horizontal_centered(|ui| {
         ui.spacing_mut().item_spacing = vec2(4.0, 0.0);
         for filter in StatusFilter::ALL {
-            chip(ui, monitor, filter);
+            chip(ui, monitor, filter, narrow);
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.spacing_mut().item_spacing = vec2(12.0, 0.0);
@@ -103,7 +105,7 @@ pub fn hud(ui: &mut Ui, monitor: &mut Monitor, state: &mut HudState) -> HudActio
     action
 }
 
-fn chip(ui: &mut Ui, monitor: &mut Monitor, filter: StatusFilter) {
+fn chip(ui: &mut Ui, monitor: &mut Monitor, filter: StatusFilter, narrow: bool) {
     let count = if filter == StatusFilter::All { monitor.agents.len() } else { monitor.agents.iter().filter(|a| filter.admits(a)).count() };
     let on = monitor.filter == filter;
     // Agents asking for help keep the chip lit red whatever the filter.
@@ -113,7 +115,7 @@ fn chip(ui: &mut Ui, monitor: &mut Monitor, filter: StatusFilter) {
     let edge = if on { alpha(Color32::WHITE, 0.7) } else if alarm { Color32::RED } else { alpha(Color32::WHITE, 0.15) };
     let ink = if alarm || on { Color32::WHITE } else { alpha(Color32::WHITE, 0.6) };
     let text = match filter {
-        StatusFilter::All => format!("{} {}", tr("Todos"), count),
+        StatusFilter::All => if narrow { count.to_string() } else { format!("{} {}", tr("Todos"), count) },
         StatusFilter::Blocked => format!("! {count}"),
         _ => format!("■ {count}"),
     };
