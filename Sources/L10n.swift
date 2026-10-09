@@ -85,6 +85,13 @@ enum L10n {
         "%@ · %ld subagentes activos": ["%@ · %ld active subagents", "%@ · %ld sous-agents actifs", "%@ · %ld subagenti attivi", "%@ · %ld subagentes ativos"],
         "%@ entró a la guild": ["%@ joined the guild", "%@ a rejoint la guilde", "%@ è entrato nella gilda", "%@ entrou na guilda"],
         "%@ salió de la guild": ["%@ left the guild", "%@ a quitté la guilde", "%@ ha lasciato la gilda", "%@ saiu da guilda"],
+        // HUD: filters and search
+        "Ningún agente coincide": ["No agent matches", "Aucun agent ne correspond", "Nessun agente corrisponde", "Nenhum agente corresponde"],
+        "Todos": ["All", "Tous", "Tutti", "Todos"],
+        "Buscar…": ["Search…", "Rechercher…", "Cerca…", "Buscar…"],
+        "Cerrar búsqueda (esc)": ["Close search (esc)", "Fermer la recherche (esc)", "Chiudi ricerca (esc)", "Fechar busca (esc)"],
+        "Buscar por proyecto, agente, rama, carpeta o actividad": ["Search by project, agent, branch, folder or activity", "Rechercher par projet, agent, branche, dossier ou activité",
+                                                                 "Cerca per progetto, agente, branch, cartella o attività", "Buscar por projeto, agente, branch, pasta ou atividade"],
         // Demo activity titles
         "Construyendo la página de ajustes": ["Building the settings page", "Construction de la page des réglages", "Costruisco la pagina delle impostazioni", "Construindo a página de ajustes"],
         "Revisando las pruebas": ["Reviewing the tests", "Révision des tests", "Rivedo i test", "Revisando os testes"],

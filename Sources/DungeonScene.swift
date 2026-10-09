@@ -897,12 +897,23 @@ final class DungeonScene: SKScene {
     private var order: [String] = []
     private let container = SKNode()
     private let emptyLabel = SKLabelNode(fontNamed: "Menlo-Bold")
+    /// Columns of rooms; set from the total agent count so a filter that
+    /// leaves one room does not change the layout.
+    var columns = 2 { didSet { if columns != oldValue { layout() } } }
+    var emptyText = tr("Sin agentes en la sesión") { didSet { emptyLabel.text = emptyText } }
+    /// How far the rooms are scrolled up, in points, when they do not fit.
+    private var scroll: CGFloat = 0
+    private var contentHeight: CGFloat = 0
+    private let scrollBar = SKShapeNode()
 
     var onSelect: ((String) -> Void)?
     /// Right click → "end agent": the dashboard confirms and types /exit.
     var onFinish: ((String) -> Void)?
     var selected: String? {
-        didSet { for (id, row) in rows { row.isSelected = (id == selected) } }
+        didSet {
+            for (id, row) in rows { row.isSelected = (id == selected) }
+            if let id = selected { reveal(id) }
+        }
     }
     var reducedMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
         didSet { for row in rows.values { row.setMotion(reduced: reducedMotion) } }
@@ -921,6 +932,11 @@ final class DungeonScene: SKScene {
         emptyLabel.fontColor = NSColor(calibratedWhite: 0.5, alpha: 1)
         emptyLabel.isHidden = true
         addChild(emptyLabel)
+        scrollBar.fillColor = NSColor(calibratedWhite: 1, alpha: 0.35)
+        scrollBar.strokeColor = .clear
+        scrollBar.zPosition = 50
+        scrollBar.isHidden = true
+        addChild(scrollBar)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
@@ -1238,9 +1254,12 @@ final class DungeonScene: SKScene {
     /// filling from the top-left.
     private func layout() {
         let cellW = AgentRow.width, cellH = AgentRow.height
-        let columns = DungeonScene.columns(for: order.count)
         let gap = max(DungeonScene.gap, (size.width - CGFloat(columns) * cellW) / CGFloat(columns + 1))
         emptyLabel.position = CGPoint(x: size.width / 2, y: size.height / 2)
+
+        let lines = (order.count + columns - 1) / columns
+        contentHeight = DungeonScene.topPad + CGFloat(lines) * cellH + CGFloat(max(lines - 1, 0)) * DungeonScene.gap + DungeonScene.bottomPad
+        scrollTo(scroll, animated: false)
 
         for (index, id) in order.enumerated() {
             guard let row = rows[id] else { continue }
@@ -1260,11 +1279,46 @@ final class DungeonScene: SKScene {
     override func didChangeSize(_ oldSize: CGSize) {
         super.didChangeSize(oldSize)
         layout()
+        if let id = selected { reveal(id) }
+    }
+
+    // MARK: Scrolling
+
+    static let bottomPad: CGFloat = 6
+    private var maxScroll: CGFloat { max(0, contentHeight - size.height) }
+
+    /// Scroll the rooms (clamped) and redraw the pixel scroll bar on the right.
+    private func scrollTo(_ offset: CGFloat, animated: Bool) {
+        scroll = min(max(offset, 0), maxScroll)
+        let target = CGPoint(x: 0, y: scroll)
+        container.removeAction(forKey: "scroll")
+        if animated && !reducedMotion { container.run(.move(to: target, duration: 0.2), withKey: "scroll") } else { container.position = target }
+        scrollBar.isHidden = maxScroll <= 0
+        guard maxScroll > 0 else { return }
+        let track = size.height - DungeonScene.topPad - 8
+        let thumb = max(24, track * size.height / contentHeight)
+        let y = size.height - DungeonScene.topPad - 4 - thumb - (track - thumb) * scroll / maxScroll
+        scrollBar.path = CGPath(roundedRect: CGRect(x: size.width - 5, y: y, width: 3, height: thumb), cornerWidth: 1.5, cornerHeight: 1.5, transform: nil)
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        guard maxScroll > 0 else { return }
+        let step = event.hasPreciseScrollingDeltas ? event.scrollingDeltaY : event.scrollingDeltaY * 12
+        scrollTo(scroll - step, animated: false)
+    }
+
+    /// Scroll just enough to show an agent's room whole.
+    func reveal(_ id: String) {
+        guard let row = rows[id] else { return }
+        let top = row.position.y + AgentRow.height / 2 + scroll, bottom = row.position.y - AgentRow.height / 2 + scroll
+        // In scene coordinates the room spans [bottom, top] once scrolled; keep it inside the view.
+        if top > size.height - DungeonScene.topPad { scrollTo(scroll - (top - (size.height - DungeonScene.topPad)), animated: true) }
+        else if bottom < 0 { scrollTo(scroll - bottom + DungeonScene.bottomPad, animated: true) }
     }
 
     /// The agent whose room is under the pointer, if any.
     private func rowID(at event: NSEvent) -> String? {
-        let point = event.location(in: self)
+        let point = event.location(in: container)
         return order.first { id in
             guard let row = rows[id] else { return false }
             return CGRect(x: row.position.x - AgentRow.width / 2, y: row.position.y - AgentRow.height / 2,

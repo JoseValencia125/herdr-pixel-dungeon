@@ -20,6 +20,7 @@ struct Dashboard: View {
                 SpriteView(scene:world.scene,preferredFramesPerSecond:30,options:[.ignoresSiblingOrder])
                     .frame(maxWidth:.infinity,maxHeight:.infinity)
                     .background(Color(red:0.05,green:0.06,blue:0.065))
+                if monitor.showsHUD { HUD(monitor:monitor) }
                 if let agent = monitor.agents.first(where:{$0.id == monitor.selected}) {
                     ChatPanel(monitor:monitor,agent:agent,onClose:{monitor.selected=nil})
                         .id(agent.id)
@@ -52,12 +53,22 @@ struct Dashboard: View {
                 guard alert.runModal() == .alertFirstButtonReturn else { return }
                 monitor.finish(agent) { failure in if failure != nil { NSSound.beep() } }
             }
-            world.scene.sync(monitor.agents);world.scene.reducedMotion=paused;world.scene.selected=monitor.selected
+            sync();world.scene.reducedMotion=paused;world.scene.selected=monitor.selected
         }
-        .onChange(of:monitor.agents) { world.scene.sync($0) }
+        .onChange(of:monitor.agents) { _ in sync() }
+        .onChange(of:monitor.filter) { _ in sync() }
+        .onChange(of:monitor.query) { _ in sync() }
         .onChange(of:monitor.selected) { world.scene.selected=$0 }
         .onChange(of:paused) { world.scene.reducedMotion=$0 }
     }
+    /// Show the rooms that pass the HUD's filter. The column count follows
+    /// every agent, so filtering never makes the widget jump in width.
+    private func sync() {
+        world.scene.columns = DungeonScene.columns(for:monitor.agents.count)
+        world.scene.emptyText = monitor.agents.isEmpty ? tr("Sin agentes en la sesión") : tr("Ningún agente coincide")
+        world.scene.sync(monitor.visibleAgents)
+    }
+
     private var controls: some View {
         HStack(spacing:7) {
             Button { sounds.enabled.toggle() } label: {
@@ -82,6 +93,100 @@ struct Dashboard: View {
         }
         .padding(5)
         .background(.black.opacity(0.35),in:Capsule())
+    }
+}
+
+/// Bar under the rooms: one chip per state (with its count) to filter the
+/// rooms, and a search box over project, harness, branch, folder and activity.
+struct HUD: View {
+    static let height: CGFloat = 28
+    @ObservedObject var monitor: Monitor
+    @State private var searching = false
+    @FocusState private var typing: Bool
+
+    var body: some View {
+        HStack(spacing:4) {
+            ForEach(StatusFilter.allCases,id:\.self) { chip($0) }
+            Spacer(minLength:2)
+            if searching || !monitor.query.isEmpty {
+                TextField(tr("Buscar…"),text:$monitor.query)
+                    .textFieldStyle(.plain)
+                    .font(.system(size:11,design:.monospaced))
+                    .focused($typing)
+                    .onExitCommand { monitor.query = ""; searching = false }
+                    .padding(.horizontal,5).frame(height:19)
+                    .background(Color.black.opacity(0.5),in:RoundedRectangle(cornerRadius:3))
+                    .overlay(RoundedRectangle(cornerRadius:3).stroke(Color.white.opacity(0.25),lineWidth:1))
+                    .frame(maxWidth:140)
+                    .onAppear {
+                        // Typing needs the widget to be the key window.
+                        NSApp.windows.first { $0 is WidgetPanel }?.makeKey()
+                        typing = true
+                    }
+            }
+            Button { if searching || !monitor.query.isEmpty { monitor.query = ""; searching = false } else { searching = true } } label: {
+                Image(systemName:searching || !monitor.query.isEmpty ? "xmark.circle.fill" : "magnifyingglass")
+                    .font(.system(size:11,weight:.bold)).foregroundStyle(Color.white.opacity(0.75)).frame(width:16,height:16)
+            }
+            .buttonStyle(.plain)
+            .help(searching ? tr("Cerrar búsqueda (esc)") : tr("Buscar por proyecto, agente, rama, carpeta o actividad"))
+        }
+        .padding(.horizontal,8)
+        .frame(height:HUD.height)
+        .background(Color(red:0.075,green:0.065,blue:0.09))
+        .overlay(Rectangle().fill(Color.white.opacity(0.08)).frame(height:1),alignment:.top)
+    }
+
+    private func chip(_ filter: StatusFilter) -> some View {
+        let count = filter == .all ? monitor.agents.count : monitor.agents.filter(filter.admits).count
+        let on = monitor.filter == filter
+        // Agents asking for help keep the chip lit red whatever the filter.
+        let alarm = filter == .blocked && count > 0
+        let tint = HUD.tint(filter)
+        let fill: Color = alarm ? Color.red.opacity(on ? 0.75 : 0.45) : on ? tint.opacity(filter == .all ? 0.2 : 0.4) : Color.black.opacity(0.35)
+        let edge: Color = on ? Color.white.opacity(0.7) : alarm ? Color.red : Color.white.opacity(0.15)
+        let ink: Color = alarm || on ? Color.white : Color.white.opacity(0.6)
+        return Button { monitor.filter = on && filter != .all ? .all : filter } label: {
+            HStack(spacing:3) {
+                chipIcon(filter,tint:tint)
+                Text("\(count)")
+            }
+            .font(.system(size:10,weight:.bold,design:.monospaced))
+            .foregroundStyle(ink)
+            .padding(.horizontal,5).frame(height:18)
+            .background(fill,in:RoundedRectangle(cornerRadius:3))
+            .overlay(RoundedRectangle(cornerRadius:3).stroke(edge,lineWidth:1))
+        }
+        .buttonStyle(.plain)
+        .help(HUD.name(filter))
+    }
+
+    @ViewBuilder private func chipIcon(_ filter: StatusFilter, tint: Color) -> some View {
+        switch filter {
+        case .all: Text(tr("Todos"))
+        case .blocked: Text("!").fontWeight(.heavy)
+        default: Rectangle().fill(tint).frame(width:6,height:6)
+        }
+    }
+
+    static func tint(_ filter: StatusFilter) -> Color {
+        switch filter {
+        case .blocked: return .red
+        case .working: return .orange
+        case .idle: return .gray
+        case .done: return .green
+        case .all: return .white
+        }
+    }
+
+    static func name(_ filter: StatusFilter) -> String {
+        switch filter {
+        case .all: return tr("Todos")
+        case .blocked: return tr("Necesita atención")
+        case .working: return tr("Trabajando")
+        case .idle: return tr("En espera")
+        case .done: return tr("Listo")
+        }
     }
 }
 

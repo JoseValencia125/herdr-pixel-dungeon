@@ -199,6 +199,26 @@ func activeSubagents(session: String, within seconds: TimeInterval = 30) -> Int 
     return 0
 }
 
+/// Which rooms the HUD's state chips let through.
+enum StatusFilter: String, CaseIterable {
+    case all, blocked, working, idle, done
+
+    func admits(_ agent: Agent) -> Bool { self == .all || agent.status == rawValue }
+}
+
+/// Agents that pass the state filter and whose project, harness, branch,
+/// folder or activity contain every word of the query (ignoring case and
+/// accents). Order is kept, so attention stays first.
+func filterAgents(_ agents: [Agent], status: StatusFilter, query: String) -> [Agent] {
+    let fold = { (text: String) in text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil) }
+    let words = fold(query).split(whereSeparator: \.isWhitespace).map(String.init)
+    return agents.filter { agent in
+        guard status.admits(agent) else { return false }
+        let haystack = fold([agent.project, agent.name, agent.branch ?? "", agent.folder, agent.cwd, agent.activity].joined(separator: "\n"))
+        return words.allSatisfy(haystack.contains)
+    }
+}
+
 struct GuildEvent: Identifiable {
     let id = UUID()
     let at = Date()
@@ -211,6 +231,17 @@ final class Monitor: ObservableObject {
     @Published var updated: Date?
     @Published var events: [GuildEvent] = []
     @Published var demo = false
+    /// HUD state chip and search box; the chip survives relaunches.
+    @Published var filter: StatusFilter { didSet { UserDefaults.standard.set(filter.rawValue, forKey: "filter.status"); onChange?() } }
+    @Published var query = "" { didSet { if query != oldValue { onChange?() } } }
+    var visibleAgents: [Agent] { filterAgents(agents, status: filter, query: query) }
+    var isFiltering: Bool { filter != .all || !query.trimmingCharacters(in: .whitespaces).isEmpty }
+    /// The HUD shows once there are enough rooms to sift, or while a filter hides some.
+    var showsHUD: Bool { agents.count >= 3 || isFiltering }
+
+    init() {
+        filter = StatusFilter(rawValue: UserDefaults.standard.string(forKey: "filter.status") ?? "") ?? .all
+    }
     /// The room the user clicked; its chat panel is open while set.
     @Published var selected: String? { didSet { if selected != oldValue { onChange?() } } }
     let session = ProcessInfo.processInfo.environment["HERDR_SESSION"] ?? "default"

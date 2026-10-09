@@ -108,8 +108,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     /// Height that shows every agent row (at least one), capped to the screen.
     func targetHeight() -> CGFloat {
         let columns = DungeonScene.columns(for: monitor.agents.count)
-        let rows = CGFloat(max(1, (monitor.agents.count + columns - 1) / columns))
-        let panel = monitor.selected == nil ? 0 : ChatPanel.height
+        let rows = CGFloat(max(1, (monitor.visibleAgents.count + columns - 1) / columns))
+        let panel = (monitor.selected == nil ? 0 : ChatPanel.height) + (monitor.showsHUD ? HUD.height : 0)
         let wanted = topInset + rows * AgentRow.height + (rows - 1) * DungeonScene.gap + bottomInset + panel
         let limit = (window.screen ?? NSScreen.main)?.visibleFrame.height ?? wanted
         return min(wanted, limit - 2 * margin)
@@ -249,8 +249,13 @@ func selfTest() throws {
     precondition(menu.keys(choosing:2)==["down","down","enter"] && menu.keys(choosing:0)==["enter"])
     let plain=MenuOptions(["¿Qué rama?","1. Rama de PR","2) Renombrar","texto","1. Otra pregunta","2. Sí"])
     precondition(!plain.isMenu && plain.options.map(\.text)==["Otra pregunta","Sí"] && MenuOptions(["hola"]).options.isEmpty)
+    let pool=[Agent(id:"1",name:"claude",status:"blocked",project:"Web Shop",activity:"Arreglando el carrito",cwd:"~/code/shop"),Agent(id:"2",name:"codex",status:"working",project:"API",activity:"Tests",cwd:"~/code/api")]
+    var branched=pool[1];branched.branch="feature/pagos"
+    precondition(filterAgents(pool,status:.all,query:"").count==2 && filterAgents(pool,status:.blocked,query:"").map(\.id)==["1"] && filterAgents(pool,status:.idle,query:"").isEmpty)
+    precondition(filterAgents(pool,status:.all,query:"CARRITO").map(\.id)==["1"] && filterAgents(pool,status:.all,query:"codex").map(\.id)==["2"] && filterAgents(pool,status:.all,query:"web shop").map(\.id)==["1"])
+    precondition(filterAgents([pool[0],branched],status:.all,query:"pagos").map(\.id)==["2"] && filterAgents(pool,status:.all,query:"cárrito shop").map(\.id)==["1"] && filterAgents(pool,status:.working,query:"shop").isEmpty)
     var fired=false;let item=ClosureMenuItem(title:"x"){fired=true};_=(item.target as AnyObject).perform(item.action,with:item);precondition(fired,"Context menu item did not fire")
-    print("PASS: snapshot states, filtering, empty/error handling, monitor transitions, room art, heroes, subagent sessions, subagents keep agents busy, tool actions, translations, git branch, sound alerts + prefs, chat selection, question options, context menu, question extraction, \(files.count) bundled sprites")
+    print("PASS: snapshot states, filtering, empty/error handling, monitor transitions, room art, heroes, subagent sessions, subagents keep agents busy, tool actions, translations, git branch, sound alerts + prefs, chat selection, question options, filters and search, context menu, question extraction, \(files.count) bundled sprites")
 }
 
 if CommandLine.arguments.contains("--self-test") {
