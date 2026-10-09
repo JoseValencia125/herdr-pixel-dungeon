@@ -48,6 +48,36 @@ fn mono(text: &str, size: f32) -> RichText {
     RichText::new(text).font(FontId::monospace(fs(size)))
 }
 
+/// Files dropped on the window this frame, as paths ready for a message:
+/// quoted when they hold a space, as the terminal would paste them.
+fn dropped_paths(ui: &Ui) -> Vec<String> {
+    ui.ctx().input(|i| {
+        i.raw.dropped_files.iter().filter_map(|f| f.path.as_ref()).map(|p| {
+            let path = p.to_string_lossy().to_string();
+            if path.contains(' ') { format!("'{}'", path.replace('\'', "'\\''")) } else { path }
+        }).collect()
+    })
+}
+
+/// Add dropped files' paths to a draft, space-separated.
+fn add_paths(draft: &mut String, paths: &[String]) {
+    for path in paths {
+        if !draft.is_empty() && !draft.ends_with(' ') { draft.push(' '); }
+        draft.push_str(path);
+        draft.push(' ');
+    }
+}
+
+/// While files are dragged over the window: a frame and a word on the
+/// panel, so it is clear the drop goes to the message.
+fn drop_hint(ui: &Ui, rect: egui::Rect) {
+    if !ui.ctx().input(|i| !i.raw.hovered_files.is_empty()) { return; }
+    let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("drop-hint")));
+    painter.rect_filled(rect, CornerRadius::same(5), alpha(Color32::BLACK, 0.55));
+    painter.rect_stroke(rect, CornerRadius::same(5), Stroke::new(2.0_f32, Color32::from_rgb(140, 217, 115)), egui::StrokeKind::Inside);
+    painter.text(rect.center(), Align2::CENTER_CENTER, tr("Suelta para añadir la ruta al mensaje"), FontId::monospace(fs(13.0)), Color32::WHITE);
+}
+
 /// One terminal line as a label: each run in its colour, bold as a
 /// brighter stroke, dim faded, inverse swapped (done in the parser).
 fn screen_line(spans: &[Span], size: f32) -> egui::Label {
@@ -264,6 +294,10 @@ pub struct ChatAction {
 /// whole. A question keeps the plain lines, whose options are clicked.
 pub fn chat_panel(ui: &mut Ui, monitor: &Monitor, agent: &Agent, state: &mut ChatState, now: f64, wide: bool) -> ChatAction {
     let mut action = ChatAction { close: false, console_step: 0 };
+    // Files dropped on the window go to the message as paths.
+    let dropped = dropped_paths(ui);
+    if !dropped.is_empty() { add_paths(&mut state.draft, &dropped); state.focus = true; }
+    drop_hint(ui, ui.max_rect());
     // Keep the terminal tail fresh while the panel is open.
     if state.status_seen != agent.status { state.status_seen = agent.status.clone(); state.next_tail = 0.0; state.next_screen = 0.0; }
     if now >= state.next_tail && state.tail_rx.is_none() {
@@ -537,6 +571,9 @@ pub struct ComposeAction {
 /// of the agents' or any other) and an optional first prompt, and Herdr
 /// starts the agent in a new workspace there.
 pub fn compose_panel(ui: &mut Ui, monitor: &Monitor, prefs: &mut Prefs, state: &mut ComposeState) -> ComposeAction {
+    let dropped = dropped_paths(ui);
+    if !dropped.is_empty() { add_paths(&mut state.prompt, &dropped); }
+    drop_hint(ui, ui.max_rect());
     let mut action = ComposeAction { close: false };
     if let Some(rx) = &state.busy {
         if let Ok(failure) = rx.try_recv() {

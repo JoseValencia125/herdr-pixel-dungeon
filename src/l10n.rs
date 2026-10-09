@@ -160,6 +160,7 @@ pub static TABLE: LazyLock<HashMap<&'static str, [&'static str; 4]>> = LazyLock:
         ("Más grande", ["Bigger", "Plus grand", "Più grande", "Maior"]),
         ("Más pequeño", ["Smaller", "Plus petit", "Più piccolo", "Menor"]),
         ("Normal", ["Normal", "Normale", "Normale", "Normal"]),
+        ("Suelta para añadir la ruta al mensaje", ["Drop to add the path to the message", "Dépose pour ajouter le chemin au message", "Rilascia per aggiungere il percorso al messaggio", "Solte para adicionar o caminho à mensagem"]),
         ("Tamaño de la consola", ["Console text size", "Taille du texte de la console", "Dimensione del testo della console", "Tamanho do texto do console"]),
         ("Consola más grande", ["Bigger console text", "Console plus grande", "Console più grande", "Console maior"]),
         ("Consola más pequeña", ["Smaller console text", "Console plus petite", "Console più piccola", "Console menor"]),
