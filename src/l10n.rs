@@ -150,6 +150,11 @@ pub static TABLE: LazyLock<HashMap<&'static str, [&'static str; 4]>> = LazyLock:
         ("Abrir Herdr al iniciar", ["Open Herdr at startup", "Ouvrir Herdr au démarrage", "Apri Herdr all’avvio", "Abrir o Herdr ao iniciar"]),
         ("Instala Herdr para responder desde aquí.", ["Install Herdr to reply from here.", "Installe Herdr pour répondre d’ici.", "Installa Herdr per rispondere da qui.", "Instale o Herdr para responder daqui."]),
         ("Los agentes se ven, pero no se les puede hablar: Herdr no está.", ["Agents are shown but cannot be talked to: Herdr is missing.", "Les agents sont visibles mais on ne peut pas leur parler : Herdr manque.", "Gli agenti si vedono ma non si può parlare loro: manca Herdr.", "Os agentes aparecem, mas não dá para falar com eles: falta o Herdr."]),
+        // Full screen
+        ("Pantalla completa", ["Full screen", "Plein écran", "Schermo intero", "Tela cheia"]),
+        ("Salir de pantalla completa", ["Exit full screen", "Quitter le plein écran", "Esci da schermo intero", "Sair da tela cheia"]),
+        ("Elige una sala para ver su consola", ["Pick a room to see its console", "Choisis une salle pour voir sa console", "Scegli una stanza per vedere la sua console", "Escolha uma sala para ver seu console"]),
+        ("esc vuelve a la ventana", ["esc goes back to the window", "esc revient à la fenêtre", "esc torna alla finestra", "esc volta à janela"]),
         // Text size
         ("Tamaño del texto", ["Text size", "Taille du texte", "Dimensione del testo", "Tamanho do texto"]),
         ("Más grande", ["Bigger", "Plus grand", "Più grande", "Maior"]),

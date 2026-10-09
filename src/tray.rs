@@ -17,6 +17,7 @@ pub enum TrayAction {
     Toggle,
     Reanchor,
     OnTop,
+    Fullscreen,
     Login,
     Sounds,
     SoundHelp,
@@ -46,6 +47,7 @@ pub struct MenuState {
     pub notify_help: bool,
     pub notify_done: bool,
     pub on_top: bool,
+    pub fullscreen: bool,
     pub login: bool,
     pub sessions: Vec<HerdrSession>,
     pub session: String,
@@ -106,11 +108,13 @@ fn build_menu(state: &MenuState) -> (Menu, HashMap<MenuId, TrayAction>) {
     let toggle = item(&tr("Mostrar / ocultar"));
     let reanchor = item(&tr("Reposicionar en la esquina"));
     let on_top = check(&tr("Siempre visible"), true, state.on_top);
+    let fullscreen = check(&tr("Pantalla completa"), true, state.fullscreen);
     let login = check(&tr("Abrir al iniciar sesión"), true, state.login);
-    let _ = menu.append_items(&[&toggle, &reanchor, &on_top, &login, &PredefinedMenuItem::separator()]);
+    let _ = menu.append_items(&[&toggle, &reanchor, &on_top, &fullscreen, &login, &PredefinedMenuItem::separator()]);
     add(&toggle, TrayAction::Toggle);
     add(&reanchor, TrayAction::Reanchor);
     add(&on_top, TrayAction::OnTop);
+    add(&fullscreen, TrayAction::Fullscreen);
     add(&login, TrayAction::Login);
 
     let sounds = Submenu::new(tr("Sonidos"), true);
