@@ -117,7 +117,10 @@ impl App {
         let login_enabled = login.as_ref().map(|l| l.is_enabled().unwrap_or(false)).unwrap_or(false);
         let mut visuals = egui::Visuals::dark();
         visuals.panel_fill = Color32::TRANSPARENT;
-        visuals.window_fill = Color32::TRANSPARENT;
+        // Menus, popups and tooltips sit on an opaque dark card.
+        visuals.window_fill = Color32::from_rgb(30, 27, 36);
+        visuals.window_stroke = egui::Stroke::new(1.0_f32, Color32::from_rgb(90, 84, 104));
+        visuals.widgets.noninteractive.bg_fill = Color32::from_rgb(30, 27, 36);
         visuals.extreme_bg_color = Color32::from_rgb(8, 9, 11);
         cc.egui_ctx.set_visuals(visuals);
         let mut app = App {
