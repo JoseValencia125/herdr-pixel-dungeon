@@ -794,19 +794,28 @@ final class AgentRow: SKNode {
                              .removeFromParent()]))
         }, .wait(forDuration: 1.2)])))
 
-        // Fireplace: warm additive light that flickers, and embers rising from the hearth.
-        let f = roomFrame
-        let glow = SKSpriteNode(color: NSColor(red: 1, green: 0.55, blue: 0.2, alpha: 1), size: f.size)
-        glow.position = CGPoint(x: f.midX, y: f.midY)
-        glow.blendMode = .add
-        glow.alpha = 0.03
-        glow.zPosition = -1
-        fx.addChild(glow)
-        // Soft and slow, like embers settling, not a flicker.
-        glow.run(.repeatForever(.sequence([.run {
-            glow.run(.fadeAlpha(to: .random(in: 0.02...0.045), duration: .random(in: 0.9...1.6)))
-        }, .wait(forDuration: 1.4, withRange: 0.6)])))
+        // Night: the room sinks into the dark and only the fireplace lights
+        // it, a warm pool that breathes slowly. Embers rise from the hearth.
         let hearth = roomPoint(CGPoint(x: 70, y: 22))
+        let dark = SKSpriteNode(texture: host.darknessTexture())
+        let reach = roomFrame.width * 2
+        dark.size = CGSize(width: reach, height: reach)
+        dark.position = hearth
+        dark.zPosition = -0.5   // over the room, the hero and the blanket; under the z's
+        fx.addChild(dark)
+        dark.run(.repeatForever(.sequence([.scale(to: 1.05, duration: 1.8), .scale(to: 0.97, duration: 2.2)])))
+        let fire = SKSpriteNode(texture: host.glowTexture())
+        fire.size = CGSize(width: 90, height: 70)
+        fire.color = NSColor(red: 1, green: 0.55, blue: 0.2, alpha: 1)
+        fire.colorBlendFactor = 1
+        fire.blendMode = .add
+        fire.position = CGPoint(x: hearth.x, y: hearth.y - 6)
+        fire.alpha = 0.14
+        fire.zPosition = -0.4
+        fx.addChild(fire)
+        fire.run(.repeatForever(.sequence([.run {
+            fire.run(.fadeAlpha(to: .random(in: 0.1...0.2), duration: .random(in: 0.9...1.6)))
+        }, .wait(forDuration: 1.4, withRange: 0.6)])))
         let flameColors = [NSColor(red: 0.996, green: 0.906, blue: 0.38, alpha: 1), NSColor(red: 0.969, green: 0.463, blue: 0.133, alpha: 1)]
         fx.run(.repeatForever(.sequence([.run { [weak self] in
             guard let self = self else { return }
@@ -1104,6 +1113,25 @@ final class DungeonScene: SKScene {
     }
 
     /// A soft white radial falloff for additive lights.
+    /// Night for the resting room: clear in the middle, darkening outward,
+    /// so centred on the hearth it leaves only a pool of firelight.
+    func darknessTexture() -> SKTexture {
+        if let cached = sheets["fx/darkness"]?.first { return cached }
+        let n = 128
+        let ctx = CGContext(data: nil, width: n, height: n, bitsPerComponent: 8, bytesPerRow: n * 4,
+                            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        let night = CGColor(red: 0.02, green: 0.01, blue: 0.04, alpha: 1)
+        let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                                  colors: [night.copy(alpha: 0)!, night.copy(alpha: 0.12)!, night.copy(alpha: 0.6)!,
+                                           night.copy(alpha: 0.82)!, night.copy(alpha: 0.86)!] as CFArray,
+                                  locations: [0, 0.1, 0.28, 0.5, 1])!
+        let c = CGPoint(x: n / 2, y: n / 2)
+        ctx.drawRadialGradient(gradient, startCenter: c, startRadius: 0, endCenter: c, endRadius: CGFloat(n) / 2, options: [.drawsAfterEndLocation])
+        let texture = SKTexture(cgImage: ctx.makeImage()!)
+        sheets["fx/darkness"] = [texture]
+        return texture
+    }
+
     func glowTexture() -> SKTexture {
         if let cached = sheets["fx/glow"]?.first { return cached }
         let n = 64
