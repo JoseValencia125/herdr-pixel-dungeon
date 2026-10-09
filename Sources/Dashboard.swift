@@ -12,6 +12,7 @@ struct Dashboard: View {
     @StateObject private var world = SceneStore()
     @State private var paused = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     @State private var hovering = false
+    @State private var showLog = false
     var onMinimize: () -> Void = {}
     var onClose: () -> Void = {}
     var body: some View {
@@ -20,7 +21,7 @@ struct Dashboard: View {
                 SpriteView(scene:world.scene,preferredFramesPerSecond:30,options:[.ignoresSiblingOrder])
                     .frame(maxWidth:.infinity,maxHeight:.infinity)
                     .background(Color(red:0.05,green:0.06,blue:0.065))
-                if monitor.showsHUD { HUD(monitor:monitor) }
+                if monitor.showsHUD { HUD(monitor:monitor,onLog:{showLog.toggle()}) }
                 if let agent = monitor.agents.first(where:{$0.id == monitor.selected}) {
                     ChatPanel(monitor:monitor,agent:agent,onClose:{monitor.selected=nil})
                         .id(agent.id)
@@ -29,7 +30,12 @@ struct Dashboard: View {
             }
             controls
                 .padding(6)
-                .opacity(hovering ? 1 : 0)
+                .opacity(hovering || showLog ? 1 : 0)
+            if showLog {
+                ActivityLog(events:monitor.events,onClose:{showLog=false})
+                    .padding(.top,38).padding(.trailing,8)
+                    .transition(.opacity)
+            }
             DragHandle()
                 .frame(maxWidth:.infinity,alignment:.top)
         }
@@ -71,6 +77,13 @@ struct Dashboard: View {
 
     private var controls: some View {
         HStack(spacing:7) {
+            Button { showLog.toggle() } label: {
+                Image(systemName:"scroll.fill").font(.system(size:13))
+                    .foregroundStyle(Color(red:0.93,green:0.84,blue:0.62).opacity(showLog ? 1 : 0.85))
+                    .frame(width:17,height:15)
+            }
+            .buttonStyle(.plain)
+            .help(tr("Registro de actividad"))
             Button { sounds.enabled.toggle() } label: {
                 Image(systemName:sounds.enabled ? "speaker.wave.2.fill" : "speaker.slash.fill").font(.system(size:13))
                     .foregroundStyle(sounds.enabled ? Color.white.opacity(0.85) : Color.white.opacity(0.45))
@@ -96,11 +109,71 @@ struct Dashboard: View {
     }
 }
 
+/// The guild's activity log on a parchment: who joined or left, state
+/// changes, subagents and messages you sent, newest first, with the time.
+/// Kept in memory only (the last 40 lines).
+struct ActivityLog: View {
+    let events: [GuildEvent]
+    var onClose: () -> Void
+    private static let ink = Color(red:0.24,green:0.15,blue:0.08)
+    private static let clock: DateFormatter = { let f = DateFormatter(); f.dateFormat = "HH:mm:ss"; return f }()
+
+    var body: some View {
+        VStack(alignment:.leading,spacing:6) {
+            HStack {
+                Text(tr("Registro de la guild")).font(.system(size:12,weight:.heavy,design:.monospaced))
+                Spacer()
+                Button(action:onClose) { Image(systemName:"xmark").font(.system(size:10,weight:.bold)) }
+                    .buttonStyle(.plain).help(tr("Cerrar"))
+            }
+            Rectangle().fill(ActivityLog.ink.opacity(0.35)).frame(height:1)
+            if events.isEmpty {
+                Text(tr("Aún no pasa nada.")).font(.system(size:10,design:.monospaced)).opacity(0.7)
+            } else {
+                ScrollView {
+                    VStack(alignment:.leading,spacing:4) {
+                        ForEach(events) { event in
+                            HStack(alignment:.firstTextBaseline,spacing:5) {
+                                Text(ActivityLog.clock.string(from:event.at)).opacity(0.6)
+                                Rectangle().fill(ActivityLog.tint(event.tone)).frame(width:6,height:6)
+                                Text(event.text).fixedSize(horizontal:false,vertical:true)
+                            }
+                        }
+                    }
+                    .frame(maxWidth:.infinity,alignment:.leading)
+                }
+            }
+        }
+        .font(.system(size:10,design:.monospaced))
+        .foregroundStyle(ActivityLog.ink)
+        .padding(10)
+        .frame(width:280)
+        .frame(maxHeight:260)
+        .fixedSize(horizontal:false,vertical:true)
+        .background(Color(red:0.93,green:0.85,blue:0.66),in:RoundedRectangle(cornerRadius:4))
+        .overlay(RoundedRectangle(cornerRadius:4).stroke(Color(red:0.45,green:0.29,blue:0.14),lineWidth:2))
+        .shadow(color:.black.opacity(0.5),radius:6,y:2)
+    }
+
+    static func tint(_ tone: String) -> Color {
+        switch tone {
+        case "blocked": return .red
+        case "working": return .orange
+        case "done", "joined": return Color(red:0.15,green:0.6,blue:0.25)
+        case "left", "idle": return .gray
+        case "subagents": return .purple
+        case "message": return .blue
+        default: return Color(red:0.45,green:0.29,blue:0.14)
+        }
+    }
+}
+
 /// Bar under the rooms: one chip per state (with its count) to filter the
 /// rooms, and a search box over project, harness, branch, folder and activity.
 struct HUD: View {
     static let height: CGFloat = 28
     @ObservedObject var monitor: Monitor
+    var onLog: () -> Void = {}
     @State private var searching = false
     @FocusState private var typing: Bool
 
@@ -124,6 +197,12 @@ struct HUD: View {
                         typing = true
                     }
             }
+            Button(action:onLog) {
+                Image(systemName:"scroll.fill").font(.system(size:11))
+                    .foregroundStyle(Color(red:0.93,green:0.84,blue:0.62).opacity(0.85)).frame(width:16,height:16)
+            }
+            .buttonStyle(.plain)
+            .help(tr("Registro de actividad"))
             Button { if searching || !monitor.query.isEmpty { monitor.query = ""; searching = false } else { searching = true } } label: {
                 Image(systemName:searching || !monitor.query.isEmpty ? "xmark.circle.fill" : "magnifyingglass")
                     .font(.system(size:11,weight:.bold)).foregroundStyle(Color.white.opacity(0.75)).frame(width:16,height:16)

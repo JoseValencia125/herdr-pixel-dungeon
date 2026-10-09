@@ -219,10 +219,14 @@ func filterAgents(_ agents: [Agent], status: StatusFilter, query: String) -> [Ag
     }
 }
 
+/// One line of the activity log. `tone` picks its marker: an agent state
+/// (working, blocked, idle, done), "joined", "left", "subagents", "message"
+/// or "info".
 struct GuildEvent: Identifiable {
     let id = UUID()
     let at = Date()
     let text: String
+    var tone = "info"
 }
 
 final class Monitor: ObservableObject {
@@ -267,11 +271,11 @@ final class Monitor: ObservableObject {
         else {
             for agent in next {
                 if let old = previous[agent.id] {
-                    if old.status != agent.status { events.insert(GuildEvent(text: "\(agent.project) · \(agent.label)"), at: 0) }
-                    if agent.subagents > old.subagents { events.insert(GuildEvent(text: tr("%@ · %ld subagentes activos", agent.project, agent.subagents)), at: 0) }
-                } else { events.insert(GuildEvent(text: tr("%@ entró a la guild", agent.project)), at: 0) }
+                    if old.status != agent.status { events.insert(GuildEvent(text: "\(agent.project) · \(agent.label)", tone: agent.status), at: 0) }
+                    if agent.subagents > old.subagents { events.insert(GuildEvent(text: tr("%@ · %ld subagentes activos", agent.project, agent.subagents), tone: "subagents"), at: 0) }
+                } else { events.insert(GuildEvent(text: tr("%@ entró a la guild", agent.project), tone: "joined"), at: 0) }
             }
-            for agent in agents where !ids.contains(agent.id) { events.insert(GuildEvent(text: tr("%@ salió de la guild", agent.project)), at: 0) }
+            for agent in agents where !ids.contains(agent.id) { events.insert(GuildEvent(text: tr("%@ salió de la guild", agent.project), tone: "left"), at: 0) }
         }
         events = Array(events.prefix(40)); agents = next; updated = Date(); error = nil
         if let selected = selected, !ids.contains(selected) { self.selected = nil }
@@ -319,7 +323,7 @@ extension Monitor {
         let message = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !message.isEmpty else { return done(nil) }
         let log = { (failure: String?) in
-            if failure == nil { self.events.insert(GuildEvent(text: tr("Tú → %@: %@", agent.project, message)), at: 0) }
+            if failure == nil { self.events.insert(GuildEvent(text: tr("Tú → %@: %@", agent.project, message), tone: "message"), at: 0) }
             done(failure)
         }
         if agent.status == "blocked" {

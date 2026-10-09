@@ -97,6 +97,10 @@ enum L10n {
         "%@ terminó": ["%@ finished", "%@ a terminé", "%@ ha finito", "%@ terminou"],
         "Notificaciones": ["Notifications", "Notifications", "Notifiche", "Notificações"],
         "Notificaciones activadas": ["Notifications on", "Notifications activées", "Notifiche attive", "Notificações ativadas"],
+        // Activity log
+        "Registro de actividad": ["Activity log", "Journal d’activité", "Registro attività", "Registro de atividade"],
+        "Registro de la guild": ["Guild log", "Journal de la guilde", "Registro della gilda", "Registro da guilda"],
+        "Aún no pasa nada.": ["Nothing has happened yet.", "Rien ne s’est encore passé.", "Non è ancora successo nulla.", "Nada aconteceu ainda."],
         // Demo activity titles
         "Construyendo la página de ajustes": ["Building the settings page", "Construction de la page des réglages", "Costruisco la pagina delle impostazioni", "Construindo a página de ajustes"],
         "Revisando las pruebas": ["Reviewing the tests", "Révision des tests", "Rivedo i test", "Revisando os testes"],
