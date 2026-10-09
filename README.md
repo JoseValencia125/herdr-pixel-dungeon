@@ -67,6 +67,10 @@ cd herdr-pixel-dungeon
 
 `cargo test` and `--self-test` run the checks; `--demo` shows fictional agents without Herdr.
 
+## Support
+
+If the dungeon is useful to you, you can [sponsor the project on GitHub](https://github.com/sponsors/JoseValencia125). Sponsorships help pay for the time spent drawing new heroes and rooms and keeping up with Herdr releases.
+
 ## Credits and licenses
 
 Created by **Nacho Valencia**: code and all pixel art. MIT, see [LICENSE](LICENSE) and [NOTICE.md](NOTICE.md).
