@@ -42,6 +42,7 @@ final class WidgetPanel: NSPanel {
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     let monitor = Monitor()
     let sounds = SoundAlerts()
+    let notifier = Notifier()
     var window: WidgetPanel!
     var status: NSStatusItem!
 
@@ -75,7 +76,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             // Typing in the chat panel needs the widget to be the key window.
             if self.monitor.selected != nil { self.window.makeKey() }
         }
-        monitor.onAlert = { [weak self] in self?.sounds.play($0) }
+        monitor.onAlerts = { [weak self] alerts in
+            guard let self = self, let first = alerts.first else { return }
+            self.sounds.play(first.kind)
+            self.notifier.post(alerts)
+        }
+        notifier.onOpen = { [weak self] id in self?.open(agent: id) }
+        notifier.start()
 
         // Square, borderless, floating widget window.
         window = WidgetPanel(contentRect: NSRect(x: 0, y: 0, width: side, height: side),
@@ -169,6 +176,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         soundMenu.autoenablesItems = false
         let soundItem = menu.addItem(withTitle: tr("Sonidos"), action: nil, keyEquivalent: "")
         soundItem.submenu = soundMenu
+        let notifyMenu = NSMenu()
+        for (title, action, on) in [(tr("Notificaciones activadas"), #selector(toggleNotify), notifier.enabled),
+                                    (tr("Al necesitar ayuda"), #selector(toggleNeedsHelpNotify), notifier.onNeedsHelp),
+                                    (tr("Al terminar"), #selector(toggleFinishedNotify), notifier.onFinished)] {
+            let item = notifyMenu.addItem(withTitle: title, action: action, keyEquivalent: "")
+            item.target = self
+            item.state = on ? .on : .off
+            if action != #selector(toggleNotify) { item.indentationLevel = 1; item.isEnabled = notifier.enabled }
+        }
+        notifyMenu.autoenablesItems = false
+        menu.addItem(withTitle: tr("Notificaciones"), action: nil, keyEquivalent: "").submenu = notifyMenu
         menu.addItem(.separator())
         menu.addItem(withTitle: tr("Acerca de Herdr Pixel Dungeon"), action: #selector(about), keyEquivalent: "").target = self
         menu.addItem(withTitle: tr("Salir"), action: #selector(quit), keyEquivalent: "q").target = self
@@ -188,6 +206,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc func toggleSound() { sounds.enabled.toggle() }
     @objc func toggleNeedsHelpSound() { sounds.onNeedsHelp.toggle(); sounds.play(.needsHelp) }
     @objc func toggleFinishedSound() { sounds.onFinished.toggle(); sounds.play(.finished) }
+    @objc func toggleNotify() { notifier.enabled.toggle() }
+    @objc func toggleNeedsHelpNotify() { notifier.onNeedsHelp.toggle() }
+    @objc func toggleFinishedNotify() { notifier.onFinished.toggle() }
+
+    /// Show the dungeon with an agent's chat open, clearing a filter that hides it.
+    func open(agent id: String) {
+        guard monitor.agents.contains(where: { $0.id == id }) else { return show() }
+        if !monitor.visibleAgents.contains(where: { $0.id == id }) { monitor.filter = .all; monitor.query = "" }
+        monitor.selected = id
+        show()
+        window.makeKey()
+    }
 
     @objc func reanchor() { anchorToCorner(); window.orderFrontRegardless() }
     @objc func show() { window.orderFrontRegardless() }
@@ -229,12 +259,18 @@ func selfTest() throws {
     precondition(alertFor(previous:before,next:[Agent(id:"a",name:"claude",status:"idle",project:"p",activity:"a",cwd:"~")]) == .finished)
     precondition(alertFor(previous:before,next:[Agent(id:"a",name:"claude",status:"blocked",project:"p",activity:"a",cwd:"~"),Agent(id:"b",name:"x",status:"done",project:"p",activity:"a",cwd:"~")]) == .needsHelp)
     before["a"]=Agent(id:"a",name:"claude",status:"idle",project:"p",activity:"a",cwd:"~");precondition(alertFor(previous:before,next:[Agent(id:"a",name:"claude",status:"idle",project:"p",activity:"a",cwd:"~")]) == nil)
-    var alerts:[AlertKind]=[];let watcher=Monitor();watcher.onAlert={alerts.append($0)};watcher.apply(demoAgents(tick:0));watcher.apply(demoAgents(tick:10));precondition(alerts == [.needsHelp])
+    var alerts:[AlertKind]=[];let watcher=Monitor();watcher.onAlerts={alerts+=$0.map(\.kind)};watcher.apply(demoAgents(tick:0));watcher.apply(demoAgents(tick:10));precondition(alerts == [.needsHelp])
     watcher.selected="demo:1";watcher.apply([]);precondition(watcher.selected == nil)
     let prefs=UserDefaults(suiteName:"hpd-selftest")!;prefs.removePersistentDomain(forName:"hpd-selftest")
     let sounds=SoundAlerts(defaults:prefs);precondition(sounds.wants(.needsHelp) && sounds.wants(.finished))
     sounds.onFinished=false;precondition(SoundAlerts(defaults:prefs).wants(.needsHelp) && !SoundAlerts(defaults:prefs).wants(.finished))
     sounds.enabled=false;precondition(!SoundAlerts(defaults:prefs).wants(.needsHelp));prefs.removePersistentDomain(forName:"hpd-selftest")
+    let notes=Notifier(defaults:prefs);precondition(notes.wants(.needsHelp) && !notes.wants(.finished))
+    notes.onFinished=true;notes.onNeedsHelp=false;let reread=Notifier(defaults:prefs);precondition(reread.wants(.finished) && !reread.wants(.needsHelp))
+    notes.enabled=false;precondition(!Notifier(defaults:prefs).wants(.finished));prefs.removePersistentDomain(forName:"hpd-selftest")
+    let both=alertsFor(previous:["a":Agent(id:"a",name:"x",status:"working",project:"p",activity:"",cwd:"~"),"b":Agent(id:"b",name:"y",status:"working",project:"p",activity:"",cwd:"~")],
+                       next:[Agent(id:"a",name:"x",status:"done",project:"p",activity:"",cwd:"~"),Agent(id:"b",name:"y",status:"blocked",project:"p",activity:"",cwd:"~")])
+    precondition(both.map(\.kind)==[.needsHelp,.finished] && both.map(\.agent.id)==["b","a"])
     precondition(SoundAlerts.jingle([(440,0.1)]) != nil,"Jingle did not decode")
     let screen="✻ Worked for 17s · done 12:00 AM\n※ recap: Estamos mejorando el dungeon y ya sale un cuadro\n  nueva: subir tus commits de main en un PR\n────────\n❯ la 1, con PR borrador\n────────\n  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents"
     precondition(meaningfulLines(screen).isEmpty,"Chrome left in terminal tail: \(meaningfulLines(screen))")
@@ -255,7 +291,7 @@ func selfTest() throws {
     precondition(filterAgents(pool,status:.all,query:"CARRITO").map(\.id)==["1"] && filterAgents(pool,status:.all,query:"codex").map(\.id)==["2"] && filterAgents(pool,status:.all,query:"web shop").map(\.id)==["1"])
     precondition(filterAgents([pool[0],branched],status:.all,query:"pagos").map(\.id)==["2"] && filterAgents(pool,status:.all,query:"cárrito shop").map(\.id)==["1"] && filterAgents(pool,status:.working,query:"shop").isEmpty)
     var fired=false;let item=ClosureMenuItem(title:"x"){fired=true};_=(item.target as AnyObject).perform(item.action,with:item);precondition(fired,"Context menu item did not fire")
-    print("PASS: snapshot states, filtering, empty/error handling, monitor transitions, room art, heroes, subagent sessions, subagents keep agents busy, tool actions, translations, git branch, sound alerts + prefs, chat selection, question options, filters and search, context menu, question extraction, \(files.count) bundled sprites")
+    print("PASS: snapshot states, filtering, empty/error handling, monitor transitions, room art, heroes, subagent sessions, subagents keep agents busy, tool actions, translations, git branch, sound alerts + prefs, notifications + prefs, chat selection, question options, filters and search, context menu, question extraction, \(files.count) bundled sprites")
 }
 
 if CommandLine.arguments.contains("--self-test") {

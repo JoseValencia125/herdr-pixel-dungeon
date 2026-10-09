@@ -92,6 +92,11 @@ enum L10n {
         "Cerrar búsqueda (esc)": ["Close search (esc)", "Fermer la recherche (esc)", "Chiudi ricerca (esc)", "Fechar busca (esc)"],
         "Buscar por proyecto, agente, rama, carpeta o actividad": ["Search by project, agent, branch, folder or activity", "Rechercher par projet, agent, branche, dossier ou activité",
                                                                  "Cerca per progetto, agente, branch, cartella o attività", "Buscar por projeto, agente, branch, pasta ou atividade"],
+        // Notifications
+        "%@ necesita atención": ["%@ needs attention", "%@ demande ton attention", "%@ richiede attenzione", "%@ precisa de atenção"],
+        "%@ terminó": ["%@ finished", "%@ a terminé", "%@ ha finito", "%@ terminou"],
+        "Notificaciones": ["Notifications", "Notifications", "Notifiche", "Notificações"],
+        "Notificaciones activadas": ["Notifications on", "Notifications activées", "Notifiche attive", "Notificações ativadas"],
         // Demo activity titles
         "Construyendo la página de ajustes": ["Building the settings page", "Construction de la page des réglages", "Costruisco la pagina delle impostazioni", "Construindo a página de ajustes"],
         "Revisando las pruebas": ["Reviewing the tests", "Révision des tests", "Rivedo i test", "Revisando os testes"],

@@ -250,7 +250,7 @@ final class Monitor: ObservableObject {
     private var tick = 0
     private var generation = 0
     var onChange: (() -> Void)?
-    var onAlert: ((AlertKind) -> Void)?
+    var onAlerts: (([AgentAlert]) -> Void)?
     func start() {
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.refresh() }
@@ -262,7 +262,7 @@ final class Monitor: ObservableObject {
     func apply(_ next: [Agent]) {
         let previous = Dictionary(uniqueKeysWithValues: agents.map { ($0.id, $0) })
         let ids = Set(next.map(\.id))
-        if updated != nil, let alert = alertFor(previous: previous, next: next) { onAlert?(alert) }
+        if updated != nil { let alerts = alertsFor(previous: previous, next: next); if !alerts.isEmpty { onAlerts?(alerts) } }
         if updated == nil { events.insert(GuildEvent(text: tr("Guild conectada · %ld agentes", next.count)), at: 0) }
         else {
             for agent in next {

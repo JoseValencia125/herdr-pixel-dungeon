@@ -1,4 +1,5 @@
 import Cocoa
+import UserNotifications
 
 /// Moments worth a sound: an agent starts needing help, or finishes its work.
 enum AlertKind: Equatable {
@@ -65,14 +66,90 @@ final class SoundAlerts: ObservableObject {
     }
 }
 
-/// Which alerts a snapshot change deserves. Needing help wins over finishing
-/// so a busy refresh never plays two jingles on top of each other.
-func alertFor(previous: [String: Agent], next: [Agent]) -> AlertKind? {
-    var kinds: [AlertKind] = []
+/// One agent whose change deserves an alert.
+struct AgentAlert: Equatable {
+    let kind: AlertKind
+    let agent: Agent
+}
+
+/// The agents whose change deserves an alert, those needing help first.
+func alertsFor(previous: [String: Agent], next: [Agent]) -> [AgentAlert] {
+    var alerts: [AgentAlert] = []
     for agent in next {
         guard let old = previous[agent.id], old.status != agent.status else { continue }
-        if agent.status == "blocked" { kinds.append(.needsHelp) }
-        else if agent.status == "done" || (old.status == "working" && agent.status == "idle") { kinds.append(.finished) }
+        if agent.status == "blocked" { alerts.append(AgentAlert(kind: .needsHelp, agent: agent)) }
+        else if agent.status == "done" || (old.status == "working" && agent.status == "idle") { alerts.append(AgentAlert(kind: .finished, agent: agent)) }
     }
-    return kinds.contains(.needsHelp) ? .needsHelp : kinds.first
+    return alerts.filter { $0.kind == .needsHelp } + alerts.filter { $0.kind == .finished }
+}
+
+/// Which jingle a snapshot change deserves. Needing help wins over finishing
+/// so a busy refresh never plays two jingles on top of each other.
+func alertFor(previous: [String: Agent], next: [Agent]) -> AlertKind? {
+    alertsFor(previous: previous, next: next).first?.kind
+}
+
+/// macOS Notification Center banners for the same moments as the jingles:
+/// on by default when an agent needs help, opt-in when one finishes.
+/// Clicking a banner shows the dungeon with that agent's chat open.
+final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelegate {
+    private let defaults: UserDefaults
+    @Published var enabled: Bool { didSet { defaults.set(enabled, forKey: "notify.enabled"); if enabled { authorize() } } }
+    @Published var onNeedsHelp: Bool { didSet { defaults.set(onNeedsHelp, forKey: "notify.needsHelp") } }
+    @Published var onFinished: Bool { didSet { defaults.set(onFinished, forKey: "notify.finished") } }
+    /// Called with the agent's pane id when its banner is clicked.
+    var onOpen: ((String) -> Void)?
+    private var authorized = false
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        defaults.register(defaults: ["notify.enabled": true, "notify.needsHelp": true, "notify.finished": false])
+        enabled = defaults.bool(forKey: "notify.enabled")
+        onNeedsHelp = defaults.bool(forKey: "notify.needsHelp")
+        onFinished = defaults.bool(forKey: "notify.finished")
+    }
+
+    func wants(_ kind: AlertKind) -> Bool {
+        enabled && (kind == .needsHelp ? onNeedsHelp : onFinished)
+    }
+
+    /// Become the delegate (so clicks reach us) and ask for permission once.
+    func start() {
+        UNUserNotificationCenter.current().delegate = self
+        if enabled { authorize() }
+    }
+
+    private func authorize() {
+        guard !authorized else { return }
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert]) { granted, _ in self.authorized = granted }
+    }
+
+    func post(_ alerts: [AgentAlert]) {
+        for alert in alerts where wants(alert.kind) {
+            let agent = alert.agent
+            let content = UNMutableNotificationContent()
+            content.title = alert.kind == .needsHelp ? tr("%@ necesita atención", agent.name) : tr("%@ terminó", agent.name)
+            content.subtitle = agent.project
+            content.body = agent.question ?? agent.activity
+            content.userInfo = ["agent": agent.id]
+            content.threadIdentifier = agent.id
+            // One banner per agent: a newer one replaces the last.
+            let request = UNNotificationRequest(identifier: "agent:" + agent.id, content: content, trigger: nil)
+            UNUserNotificationCenter.current().add(request)
+        }
+    }
+
+    /// Show banners even while the widget is in front: it may be covered.
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
+                                withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        completionHandler([.banner, .list])
+    }
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+                                withCompletionHandler completionHandler: @escaping () -> Void) {
+        if let id = response.notification.request.content.userInfo["agent"] as? String {
+            DispatchQueue.main.async { self.onOpen?(id) }
+        }
+        completionHandler()
+    }
 }
