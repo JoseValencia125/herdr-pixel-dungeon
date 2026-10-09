@@ -52,11 +52,13 @@ Close the window to keep monitoring from the menu bar, where a pixel knight's he
 
 | Herdr state | | Room | Hero |
 | --- | --- | --- | --- |
-| `working` | <img src="docs/media/room_working.png" width="216" alt=""> | Forge: lit furnace, anvil and sparks | Attacking |
-| `blocked` | <img src="docs/media/room_blocked.png" width="216" alt=""> | Sealed door: chains, keyhole seal, empty pedestal | Jumps on the rug under a red "!" |
-| `idle` | <img src="docs/media/room_idle.png" width="216" alt=""> | Inn room: bed, fireplace, moonlit window, sleeping cat | Waiting |
-| `done` | <img src="docs/media/room_done.png" width="216" alt=""> | Treasure chamber: golden light, gem, open chest | Completion marker |
-| unknown | <img src="docs/media/room_unknown.png" width="216" alt=""> | Foggy crossroads: three doors, broken signpost | Unknown |
+| `working` | <img src="docs/media/room_working.png" width="216" alt=""> | Workshop: desk with a laptop, bookshelves, furnace and anvil, alchemy table and a bubbling cauldron | Works at the station of its last tool — reads at the shelf, forges at the anvil, brews at the alchemy table, summons in a magic circle, studies a scroll, or types at the laptop — and makes the rounds when the tool is unknown |
+| `blocked` | <img src="docs/media/room_blocked.png" width="216" alt=""> | Sealed door: chains, keyhole seal, braziers, a rug | Jumps on the rug under a big pulsing red "!" while the room throbs and the frame blinks red |
+| `idle` | <img src="docs/media/room_idle.png" width="216" alt=""> | Inn room at night: bed, fireplace, moonlit window, sleeping cat | Sleeps in the bed under the blanket, breathing, with z's drifting up; only the fire lights the room |
+| `done` | <img src="docs/media/room_done.png" width="216" alt=""> | Treasure chamber: golden light, gem, open chest | Jumps for joy with both arms up under a speech bubble with a green tick, confetti flying |
+| unknown | <img src="docs/media/room_unknown.png" width="216" alt=""> | Ruins: a swirling portal, a pulsing orb, three doors | Wanders, looking left and right, with "…" and "?" in its bubble |
+
+When the state changes the hero walks out through the door, the room changes behind it, and it walks back in to its new spot.
 
 All five rooms are one shared dungeon room that changes with the state. The source is `art/dungeon_rooms.aseprite`, with one tagged frame per state.
 
