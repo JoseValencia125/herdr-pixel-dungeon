@@ -450,6 +450,7 @@ impl eframe::App for App {
                 let inner = Rect::from_min_max(egui::pos2(hud_rect.min.x + 8.0, hud_rect.min.y), egui::pos2(hud_rect.max.x - 8.0, hud_rect.max.y));
                 let action = ui.scope_builder(egui::UiBuilder::new().max_rect(inner), |ui| ui::hud(ui, &mut self.monitor, &mut self.hud)).inner;
                 if action.toggle_log { self.show_log = !self.show_log; }
+                if action.compose { let on = !self.monitor.composing; self.monitor.set_composing(on); }
             }
             // The chat or summon panel.
             if panel_open {

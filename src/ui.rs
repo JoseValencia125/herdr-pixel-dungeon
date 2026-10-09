@@ -59,27 +59,32 @@ pub struct HudState {
 
 pub struct HudAction {
     pub toggle_log: bool,
+    pub compose: bool,
 }
 
 /// Bar under the rooms: one chip per state (with its count) to filter the
 /// rooms, and a search box over project, harness, branch, folder and activity.
 pub fn hud(ui: &mut Ui, monitor: &mut Monitor, state: &mut HudState) -> HudAction {
-    let mut action = HudAction { toggle_log: false };
+    let mut action = HudAction { toggle_log: false, compose: false };
     ui.horizontal_centered(|ui| {
         ui.spacing_mut().item_spacing = vec2(4.0, 0.0);
         for filter in StatusFilter::ALL {
             chip(ui, monitor, filter);
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.spacing_mut().item_spacing = vec2(12.0, 0.0);
             let open = state.searching || !monitor.query.is_empty();
             let glyph = if open { "x" } else { "🔍" };
-            let button = flat_button(ui, mono(glyph, 11.0).color(alpha(Color32::WHITE, 0.75)))
+            let button = flat_button(ui, mono(glyph, 13.0).color(alpha(Color32::WHITE, 0.75)))
                 .on_hover_text(if state.searching { tr("Cerrar búsqueda (esc)") } else { tr("Buscar por proyecto, agente, rama, carpeta o actividad") });
             if button.clicked() {
                 if open { monitor.set_query(String::new()); state.searching = false; } else { state.searching = true; state.focus_search = true; }
             }
-            if flat_button(ui, mono("📜", 11.0).color(alpha(Color32::from_rgb(237, 214, 158), 0.85))).on_hover_text(tr("Registro de actividad")).clicked() {
+            if flat_button(ui, mono("📜", 13.0).color(alpha(Color32::from_rgb(237, 214, 158), 0.85))).on_hover_text(tr("Registro de actividad")).clicked() {
                 action.toggle_log = true;
+            }
+            if flat_button(ui, mono("+", 16.0).strong().color(Color32::from_rgb(140, 217, 115))).on_hover_text(tr("Invocar un agente nuevo")).clicked() {
+                action.compose = true;
             }
             if open {
                 let mut query = monitor.query.clone();
