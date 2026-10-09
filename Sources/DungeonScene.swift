@@ -1229,7 +1229,8 @@ final class DungeonScene: SKScene {
     }
 
     /// Stack rows vertically, attention on top, filling the widget from the top.
-    static let columns = 2
+    /// A lone agent gets a single room; otherwise two columns.
+    static func columns(for count: Int) -> Int { count == 1 ? 1 : 2 }
     static let gap: CGFloat = 6
     static let topPad: CGFloat = 14   // room for the drag handle
 
@@ -1237,13 +1238,14 @@ final class DungeonScene: SKScene {
     /// filling from the top-left.
     private func layout() {
         let cellW = AgentRow.width, cellH = AgentRow.height
-        let gap = max(DungeonScene.gap, (size.width - CGFloat(DungeonScene.columns) * cellW) / CGFloat(DungeonScene.columns + 1))
+        let columns = DungeonScene.columns(for: order.count)
+        let gap = max(DungeonScene.gap, (size.width - CGFloat(columns) * cellW) / CGFloat(columns + 1))
         emptyLabel.position = CGPoint(x: size.width / 2, y: size.height / 2)
 
         for (index, id) in order.enumerated() {
             guard let row = rows[id] else { continue }
             row.resize(width: cellW)
-            let col = index % DungeonScene.columns, line = index / DungeonScene.columns
+            let col = index % columns, line = index / columns
             let x = gap + cellW / 2 + CGFloat(col) * (cellW + gap)
             let y = size.height - DungeonScene.topPad - cellH / 2 - CGFloat(line) * (cellH + DungeonScene.gap)
             let target = CGPoint(x: x, y: y)

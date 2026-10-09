@@ -45,7 +45,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var window: WidgetPanel!
     var status: NSStatusItem!
 
-    /// Width of the widget, in points. Its height follows the number of agents.
+    /// Width of the widget with two columns of rooms, in points. Its height
+    /// follows the number of agents.
     let side: CGFloat = 460
     /// Room above the first row (drag handle) and below the last one.
     let topInset: CGFloat = 14
@@ -70,7 +71,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             let count = self.monitor.agents.filter { $0.status == "blocked" }.count
             self.status.button?.title = self.monitor.error == nil ? " \(self.monitor.agents.count)" + (count > 0 ? " · \(count)!" : "") : " —"
             self.status.button?.toolTip = tr("Herdr Pixel Dungeon · %ld necesitan atención", count)
-            self.fitHeight()
+            self.fitSize()
             // Typing in the chat panel needs the widget to be the key window.
             if self.monitor.selected != nil { self.window.makeKey() }
         }
@@ -106,21 +107,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     /// Height that shows every agent row (at least one), capped to the screen.
     func targetHeight() -> CGFloat {
-        let rows = CGFloat(max(1, (monitor.agents.count + DungeonScene.columns - 1) / DungeonScene.columns))
+        let columns = DungeonScene.columns(for: monitor.agents.count)
+        let rows = CGFloat(max(1, (monitor.agents.count + columns - 1) / columns))
         let panel = monitor.selected == nil ? 0 : ChatPanel.height
         let wanted = topInset + rows * AgentRow.height + (rows - 1) * DungeonScene.gap + bottomInset + panel
         let limit = (window.screen ?? NSScreen.main)?.visibleFrame.height ?? wanted
         return min(wanted, limit - 2 * margin)
     }
 
-    /// Grow or shrink the window vertically with the agent count, keeping its
-    /// top edge where the user put it.
-    func fitHeight() {
-        let height = targetHeight()
+    /// One room wide for a lone agent, two otherwise.
+    func targetWidth() -> CGFloat {
+        DungeonScene.columns(for: monitor.agents.count) == 1 ? AgentRow.width + 2 * DungeonScene.gap : side
+    }
+
+    /// Resize the window with the agent count, keeping its top-right corner
+    /// where the user put it.
+    func fitSize() {
+        let height = targetHeight(), width = targetWidth()
         var frame = window.frame
-        guard abs(frame.height - height) > 0.5 else { return }
+        guard abs(frame.height - height) > 0.5 || abs(frame.width - width) > 0.5 else { return }
         frame.origin.y = frame.maxY - height
-        frame.size.height = height
+        frame.origin.x = frame.maxX - width
+        frame.size = NSSize(width: width, height: height)
         window.setFrame(frame, display: true, animate: window.isVisible)
         window.invalidateShadow()
     }
@@ -129,10 +137,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func anchorToCorner() {
         guard let screen = NSScreen.main else { return }
         let visible = screen.visibleFrame
-        let height = targetHeight()
-        let x = visible.maxX - side - margin
+        let height = targetHeight(), width = targetWidth()
+        let x = visible.maxX - width - margin
         let y = visible.maxY - height - margin
-        window.setFrame(NSRect(x: x, y: y, width: side, height: height), display: true)
+        window.setFrame(NSRect(x: x, y: y, width: width, height: height), display: true)
     }
 
     @objc func statusClicked(_ sender: NSStatusBarButton) {
