@@ -10,13 +10,13 @@ func menuBarIcon() -> NSImage {
         "....########....",
         "...##########...",
         "..############..",
-        "..############..",
         "..##........##..",
+        "..##........##..",
+        "..#####..#####..",
         "..#####..#####..",
         "..#####..#####..",
         "..############..",
         "..##.#.##.#.##..",
-        "..############..",
         "...##########...",
         "..############..",
         ".##############.",
@@ -228,8 +228,16 @@ func selfTest() throws {
     sounds.onFinished=false;precondition(SoundAlerts(defaults:prefs).wants(.needsHelp) && !SoundAlerts(defaults:prefs).wants(.finished))
     sounds.enabled=false;precondition(!SoundAlerts(defaults:prefs).wants(.needsHelp));prefs.removePersistentDomain(forName:"hpd-selftest")
     precondition(SoundAlerts.jingle([(440,0.1)]) != nil,"Jingle did not decode")
+    let screen="✻ Worked for 17s · done 12:00 AM\n※ recap: Estamos mejorando el dungeon y ya sale un cuadro\n  nueva: subir tus commits de main en un PR\n────────\n❯ la 1, con PR borrador\n────────\n  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents"
+    precondition(meaningfulLines(screen).isEmpty,"Chrome left in terminal tail: \(meaningfulLines(screen))")
+    precondition(meaningfulLines(" Do you want to proceed?\n❯ 1. Yes\n  2. No\n❯ hola").count==3,"Permission options were dropped")
+    let ask="Lo que veo:\n- algo\n\nneeds input: ¿para qué es la rama nueva? Opciones:\n\n1. **Rama de PR** desde `main`\n2. Renombrar"
+    precondition(questionLines(in:ask,needs:"¿para qué es la rama nueva? Opciones:")==["¿para qué es la rama nueva? Opciones:","1. Rama de PR desde main","2. Renombrar"],"Question not cut at the ask")
+    let job=BackgroundJob(state:"blocked",needs:"¿Sí?",transcript:"/t.jsonl",updated:Date())
+    let asked=Agent(id:"q",name:"claude",status:"idle",project:"p",activity:"a",cwd:"~").with(jobs:[job])
+    precondition(asked.status=="blocked" && asked.question=="¿Sí?" && asked.questionTranscript=="/t.jsonl")
     var fired=false;let item=ClosureMenuItem(title:"x"){fired=true};_=(item.target as AnyObject).perform(item.action,with:item);precondition(fired,"Context menu item did not fire")
-    print("PASS: snapshot states, filtering, empty/error handling, monitor transitions, room art, heroes, subagent sessions, subagents keep agents busy, tool actions, translations, git branch, sound alerts + prefs, chat selection, context menu, \(files.count) bundled sprites")
+    print("PASS: snapshot states, filtering, empty/error handling, monitor transitions, room art, heroes, subagent sessions, subagents keep agents busy, tool actions, translations, git branch, sound alerts + prefs, chat selection, context menu, question extraction, \(files.count) bundled sprites")
 }
 
 if CommandLine.arguments.contains("--self-test") {

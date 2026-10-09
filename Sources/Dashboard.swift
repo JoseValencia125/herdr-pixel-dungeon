@@ -88,7 +88,7 @@ struct Dashboard: View {
 /// Opens under the rooms when one is clicked: the tail of the agent's
 /// terminal, quick answers for a permission prompt, and a box to type to it.
 struct ChatPanel: View {
-    static let height: CGFloat = 178
+    static let height: CGFloat = 220
     @ObservedObject var monitor: Monitor
     let agent: Agent
     var onClose: () -> Void
@@ -113,11 +113,27 @@ struct ChatPanel: View {
                 Button(action:onClose) { Image(systemName:"xmark") }
                     .buttonStyle(.plain).keyboardShortcut(.cancelAction).help("Cerrar (esc)")
             }
-            VStack(alignment:.leading,spacing:1) {
-                ForEach(Array(lines.enumerated()),id:\.offset) { _,line in
-                    Text(line).lineLimit(1).truncationMode(.tail)
+            Group {
+                if agent.status == "blocked" && !lines.isEmpty {
+                    // A question: show all of it, wrapped and scrollable, asked line first.
+                    ScrollView {
+                        VStack(alignment:.leading,spacing:2) {
+                            ForEach(Array(lines.enumerated()),id:\.offset) { i,line in
+                                Text(line).fontWeight(i == 0 && agent.question != nil ? .bold : .regular)
+                                    .foregroundStyle(i == 0 && agent.question != nil ? Color.white : Color(white:0.85))
+                                    .fixedSize(horizontal:false,vertical:true)
+                            }
+                        }
+                        .frame(maxWidth:.infinity,alignment:.leading)
+                    }
+                } else {
+                    VStack(alignment:.leading,spacing:1) {
+                        ForEach(Array(lines.enumerated()),id:\.offset) { _,line in
+                            Text(line).lineLimit(1).truncationMode(.tail)
+                        }
+                        if lines.isEmpty { Text(tr("Leyendo la terminal…")).foregroundStyle(.secondary) }
+                    }
                 }
-                if lines.isEmpty { Text(tr("Leyendo la terminal…")).foregroundStyle(.secondary) }
             }
             .font(.system(size:10,design:.monospaced))
             .foregroundStyle(Color(white:0.85))

@@ -13,6 +13,8 @@ struct Agent: Identifiable, Equatable {
     var subagents = 0             // subagents with recent transcript activity
     var branch: String? = nil     // git branch of cwd, if it is a repository
     var action: String? = nil     // what a working Claude Code agent is doing: read, forge, brew, summon, plan, type
+    var question: String? = nil   // what a blocked background job is asking (its first line)
+    var questionTranscript: String? = nil  // that job's transcript, to show the whole question
     var folder: String { (cwd as NSString).lastPathComponent }
     var label: String { tr(["working":"Trabajando", "blocked":"Necesita atención", "idle":"En espera", "done":"Listo"][status] ?? "Sin estado") }
     var color: Color { switch status { case "working": return .orange; case "blocked": return .red; case "done": return .green; case "idle": return .gray; default: return .gray } }
@@ -100,21 +102,29 @@ func fetchSnapshot(session: String) throws -> [Agent] {
 /// only shows the job list waiting for input, so Herdr reports it idle while
 /// its jobs work. Each job keeps ~/.claude/jobs/<id>/state.json with its
 /// state and cwd. Returns the states of recently updated jobs by cwd.
-func backgroundJobs(within seconds: TimeInterval = 3600) -> [String:[String]] {
+struct BackgroundJob {
+    let state: String
+    let needs: String?        // first line of the question a blocked job is asking
+    let transcript: String?   // its transcript (.jsonl)
+    let updated: Date
+}
+
+func backgroundJobs(within seconds: TimeInterval = 3600) -> [String:[BackgroundJob]] {
     let fm = FileManager.default
     let root = fm.homeDirectoryForCurrentUser.appendingPathComponent(".claude/jobs")
     guard let dirs = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil) else { return [:] }
     let dates = ISO8601DateFormatter()
     dates.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     let cutoff = Date().addingTimeInterval(-seconds)
-    var byCwd: [String:[String]] = [:]
+    var byCwd: [String:[BackgroundJob]] = [:]
     for dir in dirs {
         guard let data = try? Data(contentsOf: dir.appendingPathComponent("state.json")),
               let job = try? JSONSerialization.jsonObject(with: data) as? [String:Any],
               let state = job["state"] as? String,
               let cwd = job["originCwd"] as? String ?? job["cwd"] as? String,
               let updated = (job["updatedAt"] as? String).flatMap(dates.date(from:)), updated > cutoff else { continue }
-        byCwd[cwd, default: []].append(state)
+        byCwd[cwd, default: []].append(BackgroundJob(state: state, needs: job["needs"] as? String,
+                                                      transcript: job["linkScanPath"] as? String, updated: updated))
     }
     return byCwd
 }
@@ -149,9 +159,14 @@ func gitBranch(at path: String) -> String? {
 extension Agent {
     /// A pane takes the most urgent state among itself and its background
     /// jobs: a job needing input outranks one working, which outranks idle.
-    func with(jobs states: [String]) -> Agent {
+    func with(jobs: [BackgroundJob]) -> Agent {
         var agent = self
+        let states = jobs.map(\.state)
         if let urgent = ["blocked", "working"].first(where: states.contains), Agent.rank(urgent) < rank { agent.status = urgent }
+        if agent.status == "blocked", let asking = jobs.filter({ $0.state == "blocked" }).max(by: { $0.updated < $1.updated }) {
+            agent.question = asking.needs
+            agent.questionTranscript = asking.transcript
+        }
         return agent
     }
 
@@ -311,20 +326,23 @@ extension Monitor {
     func tail(of agent: Agent, lines: Int = 6, done: @escaping ([String]) -> Void) {
         let selectedSession = session, demoMode = demo
         DispatchQueue.global(qos: .userInitiated).async {
+            // A background job asking something: its whole question, options included.
+            if !demoMode, agent.status == "blocked", let path = agent.questionTranscript,
+               let message = fileTail(path).flatMap({ lastAssistantText(transcriptTail: $0) }) {
+                let rows = questionLines(in: message, needs: agent.question)
+                if !rows.isEmpty { return DispatchQueue.main.async { done(rows) } }
+            }
             let text: String
             if demoMode {
                 text = agent.status == "blocked"
                     ? "● Bash(rm -rf build && make)\n  Do you want to proceed?\n❯ 1. Yes\n  2. Yes, and don't ask again\n  3. No, and tell Claude what to do"
                     : "● \(agent.activity)\n  ⎿ Leyendo archivos del proyecto…"
             } else {
-                let data = try? runHerdr(["agent", "read", agent.id, "--source", "recent", "--lines", "40", "--format", "text"], session: selectedSession)
+                let data = try? runHerdr(["agent", "read", agent.id, "--source", "recent", "--lines", "60", "--format", "text"], session: selectedSession)
                 text = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
             }
-            let rows = text.split(separator: "\n", omittingEmptySubsequences: false)
-                .map { String($0).replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression) }
-                // Skip blanks and the separator rules agents draw around their input box.
-                .filter { $0.range(of: "^[\\s─━═╌┄-]*$", options: .regularExpression) == nil }
-            DispatchQueue.main.async { done(Array(rows.suffix(lines))) }
+            let rows = meaningfulLines(text)
+            DispatchQueue.main.async { done(Array(rows.suffix(agent.status == "blocked" ? 12 : lines))) }
         }
     }
 }
@@ -374,6 +392,67 @@ func lastAction(transcriptTail text: String) -> String? {
         return "type"
     }
     return nil
+}
+
+/// The last 128 KB of a file, as text.
+func fileTail(_ path: String, bytes: UInt64 = 131_072) -> String? {
+    guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+    defer { try? handle.close() }
+    let size = (try? handle.seekToEnd()) ?? 0
+    try? handle.seek(toOffset: size > bytes ? size - bytes : 0)
+    return (try? handle.readToEnd()).map { String(decoding: $0, as: UTF8.self) }
+}
+
+/// The text of the latest assistant message that has any, in the tail of a
+/// Claude Code transcript.
+func lastAssistantText(transcriptTail text: String) -> String? {
+    for line in text.split(separator: "\n").reversed() {
+        guard line.contains("\"assistant\""),
+              let row = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
+              row["type"] as? String == "assistant",
+              let content = (row["message"] as? [String: Any])?["content"] as? [[String: Any]] else { continue }
+        let text = content.compactMap { $0["type"] as? String == "text" ? $0["text"] as? String : nil }.joined(separator: "\n")
+        if !text.isEmpty { return text }
+    }
+    return nil
+}
+
+/// The question in an assistant message: from the line that asks it (the
+/// job's `needs`, or a "needs input:" line) to the end, so its options come
+/// along. Markdown emphasis is dropped; the panel is plain text.
+func questionLines(in message: String, needs: String?) -> [String] {
+    var lines = message.components(separatedBy: "\n").map { $0.replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "`", with: "") }
+    let needle = needs?.trimmingCharacters(in: .whitespaces)
+    if let start = lines.lastIndex(where: { line in (needle.map { !$0.isEmpty && line.contains($0) } ?? false) || line.hasPrefix("needs input:") }) {
+        lines = Array(lines[start...])
+        lines[0] = lines[0].replacingOccurrences(of: "needs input:", with: "").trimmingCharacters(in: .whitespaces)
+    } else {
+        lines = Array(lines.suffix(8))
+    }
+    return lines.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+}
+
+/// The lines of an agent's terminal that say something, without Claude
+/// Code's own UI around its input box: status lines (✻ Worked…, ※ recap and
+/// their wrapped continuation), the input line and the mode footer. Numbered
+/// options stay, even the highlighted one (❯ 1. Yes).
+func meaningfulLines(_ text: String) -> [String] {
+    var out: [String] = [], skipping = false
+    for raw in text.components(separatedBy: "\n") {
+        let line = raw.replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression)
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty || trimmed.range(of: "^[─━═╌┄-]+$", options: .regularExpression) != nil { skipping = false; continue }
+        if skipping && line.first?.isWhitespace == true { continue }
+        skipping = false
+        let option = trimmed.range(of: "^❯?\\s*\\d+\\.\\s", options: .regularExpression) != nil
+        let status = ["✻", "✳", "✢", "✽", "✶", "※"].contains { trimmed.hasPrefix($0) }
+        let footer = ["⏵", "▶▶", "►", "⏸"].contains { trimmed.hasPrefix($0) }
+            || ["? for shortcuts", "shift+tab to cycle", "esc to interrupt"].contains { trimmed.contains($0) }
+        if status { skipping = true; continue }
+        if footer || (trimmed.hasPrefix("❯") && !option) { continue }
+        out.append(line)
+    }
+    return out
 }
 
 /// What a Claude Code session is doing right now, from the last 128 KB of
