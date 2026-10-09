@@ -94,10 +94,17 @@ func fetchSnapshot(session: String) throws -> [Agent] {
         agent.branch = gitBranch(at: path)
         if agent.name == "claude" { agent = agent.with(jobs: jobs[path] ?? []) }
         guard let session = agent.session else { return agent }
-        agent.action = currentAction(session: session)
-        let helpers = subagentActions(session: session)
-        agent.subagentActions = helpers
-        return agent.with(subagents: helpers.count)
+        switch Hero.harness(for: agent.name) {
+        case "claude":
+            agent.action = currentAction(session: session)
+            let helpers = subagentActions(session: session)
+            agent.subagentActions = helpers
+            return agent.with(subagents: helpers.count)
+        case "codex": agent.action = recentAction(in: codexTranscript(session: session), parse: codexAction)
+        case "kiro": agent.action = recentAction(in: kiroTranscript(session: session), parse: kiroAction)
+        default: break   // no readable activity: the hero makes the rounds
+        }
+        return agent
     }
 }
 
@@ -553,6 +560,110 @@ func lastAction(transcriptTail text: String) -> String? {
         return "type"
     }
     return nil
+}
+
+// MARK: Other harnesses
+
+/// The action in a transcript written in the last two minutes, from its
+/// tail. Parsed again only when the file changes.
+func recentAction(in file: URL?, parse: (String) -> String?) -> String? {
+    guard let file = file,
+          let modified = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate,
+          modified > Date().addingTimeInterval(-120) else { return nil }
+    transcriptActions.lock()
+    defer { transcriptActions.unlock() }
+    if let cached = transcriptActions.cache[file.path], cached.modified == modified { return cached.action }
+    guard let action = fileTail(file.path).flatMap(parse) else { return nil }
+    transcriptActions.cache[file.path] = (modified, action)
+    return action
+}
+
+/// A shell command that only looks at files (the way Codex reads them)
+/// counts as reading; anything else is brewing.
+func shellAction(_ command: String) -> String {
+    let readers: Set<String> = ["cat", "rg", "grep", "sed", "ls", "find", "head", "tail", "nl", "wc", "less", "tree", "fd", "bat", "awk"]
+    let first = command.split(whereSeparator: { " ;|&\n".contains($0) }).first.map(String.init) ?? ""
+    return readers.contains((first as NSString).lastPathComponent) ? "read" : "brew"
+}
+
+/// The action of the latest Codex step in the tail of its rollout
+/// (~/.codex/sessions/…/rollout-…-<session>.jsonl): its last tool call, or
+/// typing while it reasons or writes.
+func codexAction(transcriptTail text: String) -> String? {
+    for line in text.split(separator: "\n").reversed() {
+        guard line.contains("\"response_item\""),
+              let row = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
+              let item = row["payload"] as? [String: Any], let kind = item["type"] as? String else { continue }
+        switch kind {
+        case "function_call", "custom_tool_call", "local_shell_call":
+            let name = item["name"] as? String ?? "shell"
+            switch name {
+            case "exec_command", "shell", "local_shell", "container.exec":
+                let arguments = (item["arguments"] as? String).flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
+                let command = arguments?["cmd"] as? String ?? (arguments?["command"] as? [String])?.joined(separator: " ") ?? ""
+                return shellAction(command)
+            case "apply_patch": return "forge"
+            case "update_plan": return "plan"
+            case "web_search", "view_image": return "read"
+            default: return "type"
+            }
+        case "web_search_call": return "read"
+        case "message", "reasoning": return item["role"] as? String == "user" ? nil : "type"
+        default: continue
+        }
+    }
+    return nil
+}
+
+/// The action of the latest Kiro reply in the tail of its session
+/// (~/.kiro/sessions/cli/<session>.jsonl): its last tool, or typing.
+func kiroAction(transcriptTail text: String) -> String? {
+    for line in text.split(separator: "\n").reversed() {
+        guard line.contains("\"AssistantMessage\""),
+              let row = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
+              let content = (row["data"] as? [String: Any])?["content"] as? [[String: Any]] else { continue }
+        guard let tool = content.last(where: { $0["kind"] as? String == "toolUse" })?["data"] as? [String: Any],
+              let name = (tool["name"] as? String)?.lowercased() else { return "type" }
+        if ["read", "grep", "glob", "ls", "fs_read", "web_search", "web_fetch", "code"].contains(name) { return "read" }
+        if ["write", "edit", "fs_write", "str_replace", "create"].contains(name) { return "forge" }
+        if ["shell", "execute_bash", "bash"].contains(name) { return "brew" }
+        if name.contains("todo") || name.contains("plan") { return "plan" }
+        if name.contains("agent") || name.contains("delegate") { return "summon" }
+        return "type"
+    }
+    return nil
+}
+
+private final class PathCache: NSLock { var paths: [String: URL] = [:] }
+private let transcriptPaths = PathCache()
+
+/// Codex's rollout for a session: an absolute path as given, else the
+/// newest `rollout-*-<session>.jsonl` in the last two weeks of day folders.
+func codexTranscript(session: String) -> URL? {
+    if session.hasPrefix("/") { return URL(fileURLWithPath: session) }
+    transcriptPaths.lock()
+    defer { transcriptPaths.unlock() }
+    if let known = transcriptPaths.paths[session] { return known }
+    let root = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex/sessions")
+    let days = DateFormatter()
+    days.dateFormat = "yyyy/MM/dd"
+    for back in 0..<14 {
+        let folder = root.appendingPathComponent(days.string(from: Date().addingTimeInterval(-86_400 * Double(back))))
+        guard let files = try? FileManager.default.contentsOfDirectory(atPath: folder.path) else { continue }
+        if let name = files.filter({ $0.hasSuffix("-\(session).jsonl") }).max() {
+            let url = folder.appendingPathComponent(name)
+            transcriptPaths.paths[session] = url
+            return url
+        }
+    }
+    return nil
+}
+
+/// Kiro's session file: an absolute path as given, else ~/.kiro/sessions/cli/<session>.jsonl.
+func kiroTranscript(session: String) -> URL? {
+    if session.hasPrefix("/") { return URL(fileURLWithPath: session) }
+    let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".kiro/sessions/cli/\(session).jsonl")
+    return FileManager.default.fileExists(atPath: url.path) ? url : nil
 }
 
 /// The last 128 KB of a file, as text.

@@ -362,8 +362,17 @@ func selfTest() throws {
     precondition(listed==[HerdrSession(name:"default",running:true),HerdrSession(name:"work",running:false)] && decodeSessions(Data("nope".utf8)).isEmpty)
     let named=agentName(kind:"codex",folder:"Mi Proyecto_2");precondition(named.hasPrefix("codex-mi-proyecto-2-") && named.count==24,"Agent name: \(named)")
     precondition(rootPane(Data(#"{"result":{"root_pane":{"pane_id":"w3:p1"},"tab":{}}}"#.utf8))=="w3:p1" && rootPane(Data("{}".utf8))==nil)
+    let codex=[#"{"type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\"cmd\":\"rg --files app\"}"}}"#,
+               #"{"type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\"cmd\":\"npm test\"}"}}"#,
+               #"{"type":"response_item","payload":{"type":"custom_tool_call","name":"apply_patch","input":"*** Begin"}}"#,
+               #"{"type":"response_item","payload":{"type":"reasoning","summary":[]}}"#]
+    precondition(codexAction(transcriptTail:codex[0])=="read" && codexAction(transcriptTail:codex[1])=="brew" && codexAction(transcriptTail:codex[0...2].joined(separator:"\n"))=="forge")
+    precondition(codexAction(transcriptTail:codex.joined(separator:"\n"))=="type" && codexAction(transcriptTail:#"{"type":"event_msg","payload":{"type":"token_count"}}"#)==nil)
+    let kiro=#"{"version":"v1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"x"},{"kind":"toolUse","data":{"name":"shell","input":{}}}]}}"#
+    precondition(kiroAction(transcriptTail:kiro)=="brew" && kiroAction(transcriptTail:#"{"kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"hola"}]}}"#)=="type" && kiroAction(transcriptTail:#"{"kind":"Prompt","data":{}}"#)==nil)
+    precondition(shellAction("/usr/bin/sed -n 1,5p x")=="read" && shellAction("swift build")=="brew" && shellAction("")=="brew")
     var fired=false;let item=ClosureMenuItem(title:"x"){fired=true};_=(item.target as AnyObject).perform(item.action,with:item);precondition(fired,"Context menu item did not fire")
-    print("PASS: snapshot states, filtering, empty/error handling, monitor transitions, room art, heroes, subagent sessions, agent creation, subagents keep agents busy, tool actions, translations, git branch, sound alerts + prefs, notifications + prefs, chat selection, question options, filters and search, connection notes, flex-wrap columns, sessions, agent creation, context menu, question extraction, \(files.count) bundled sprites")
+    print("PASS: snapshot states, filtering, empty/error handling, monitor transitions, room art, heroes, subagent sessions, agent creation, codex + kiro actions, subagents keep agents busy, tool actions, translations, git branch, sound alerts + prefs, notifications + prefs, chat selection, question options, filters and search, connection notes, flex-wrap columns, sessions, agent creation, codex + kiro actions, context menu, question extraction, \(files.count) bundled sprites")
 }
 
 if CommandLine.arguments.contains("--self-test") {
