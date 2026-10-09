@@ -390,6 +390,19 @@ pub fn live_job_ids(root: &str) -> Option<HashSet<String>> {
     Some(live)
 }
 
+/// A job's effective state. Its `state` can stay "blocked" for a whole
+/// interactive session (it marks who holds the turn), so the live `tempo`
+/// (active / idle / blocked) is the authority when present; a pending
+/// question (`needs`) blocks unless the job is active again.
+pub fn job_state(state: &str, tempo: Option<&str>, has_needs: bool) -> String {
+    match tempo {
+        Some("active") => "working".into(),
+        Some("blocked") => "blocked".into(),
+        Some("idle") => if has_needs { "blocked".into() } else { "idle".into() },
+        _ => state.into(),
+    }
+}
+
 pub fn background_jobs(within: Duration, live: Option<HashSet<String>>) -> HashMap<String, Vec<BackgroundJob>> {
     let mut by_cwd: HashMap<String, Vec<BackgroundJob>> = HashMap::new();
     let Ok(dirs) = std::fs::read_dir(home_dir().join(".claude/jobs")) else { return by_cwd };
@@ -402,9 +415,10 @@ pub fn background_jobs(within: Duration, live: Option<HashSet<String>>) -> HashM
         let (Some(state), Some(cwd)) = (str_of(&job, "state"), str_of(&job, "originCwd").or_else(|| str_of(&job, "cwd"))) else { continue };
         let Some(updated) = str_of(&job, "updatedAt").and_then(parse_iso8601) else { continue };
         if updated <= cutoff { continue; }
+        let needs = str_of(&job, "needs").filter(|n| !n.trim().is_empty()).map(str::to_string);
         by_cwd.entry(cwd.to_string()).or_default().push(BackgroundJob {
-            state: state.to_string(),
-            needs: str_of(&job, "needs").map(str::to_string),
+            state: job_state(state, str_of(&job, "tempo"), needs.is_some()),
+            needs,
             transcript: str_of(&job, "linkScanPath").map(str::to_string),
             updated,
         });

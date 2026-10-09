@@ -113,6 +113,7 @@ pub fn run() {
     let flowed = paragraphs(&wrapped);
     assert_eq!(flowed.len(), 5, "Hard-wrapped lines not joined: {flowed:?}");
     assert!(flowed[2].starts_with("Tipografía") && flowed[2].ends_with("capturas.") && flowed[3].starts_with("  - Primer paso") && flowed[3].ends_with("de HP.") && flowed[4] == "❯ 1. Yes");
+    assert!(job_state("blocked", Some("active"), false) == "working" && job_state("blocked", Some("idle"), false) == "idle" && job_state("blocked", Some("idle"), true) == "blocked" && job_state("working", Some("blocked"), false) == "blocked" && job_state("blocked", None, false) == "blocked", "Job tempo must decide its state");
     let job = BackgroundJob { state: "blocked".into(), needs: Some("¿Sí?".into()), transcript: Some("/t.jsonl".into()), updated: SystemTime::now() };
     let asked = agent("q", "claude", "idle", "p", "a", "~").with_jobs(&[job]);
     assert!(asked.status == "blocked" && asked.question.as_deref() == Some("¿Sí?") && asked.question_transcript.as_deref() == Some("/t.jsonl"));
