@@ -102,6 +102,9 @@ struct App {
     key_panel: Option<String>,
     login: Option<auto_launch::AutoLaunch>,
     login_enabled: bool,
+    /// A panel opened while the widget was one room wide: it widens to two
+    /// rooms meanwhile, so the chat has room, and narrows back on close.
+    widened: bool,
 }
 
 impl App {
@@ -147,6 +150,7 @@ impl App {
             key_panel: None,
             login,
             login_enabled,
+            widened: false,
         };
         app.monitor.refresh();
         app
@@ -173,6 +177,7 @@ impl App {
 
     /// Columns shown: the user's, but never more than there are agents.
     fn shown_columns(&self) -> usize {
+        if self.widened && self.panel_open() { return 2; }
         self.prefs.columns.min(self.monitor.agents.len().max(1))
     }
 
@@ -401,6 +406,11 @@ impl eframe::App for App {
         self.tray.update(&self.menu_state());
         self.track_window(ctx, now);
 
+        // A panel opening at one column widens the widget while it is open.
+        let was_open = self.chat.is_some() || self.key_panel.is_some();
+        let opening = (self.monitor.selected.is_some() || self.monitor.composing) && !was_open;
+        if opening && self.shown_columns() == 1 { self.widened = true; }
+        if !self.monitor.composing && self.monitor.selected.is_none() && self.widened { self.widened = false; needs_fit = true; }
         // The chat panel follows the selection.
         match (&self.monitor.selected, &self.chat) {
             (Some(id), Some(chat)) if &chat.agent_id == id => {}
