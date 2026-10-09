@@ -1211,6 +1211,7 @@ pub struct SceneResponse {
 
 enum ScrollRequest {
     Top,
+    Down,
     Reveal(String),
 }
 
@@ -1289,7 +1290,8 @@ impl Scene {
         let gap = GAP.max((width - columns as f32 * ROW_W) / (columns + 1) as f32);
         let height = self.content_height(width);
         let scroll_request = self.scroll_request.take();
-        egui::ScrollArea::vertical()
+        let mut room_rects: Vec<Rect> = vec![];
+        let output = egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded)
             .show(ui, |ui| {
@@ -1299,6 +1301,11 @@ impl Scene {
                 }
                 if matches!(scroll_request, Some(ScrollRequest::Top)) {
                     ui.scroll_to_rect(Rect::from_min_size(content.min, vec2(1.0, 1.0)), Some(egui::Align::Min));
+                }
+                if matches!(scroll_request, Some(ScrollRequest::Down)) {
+                    // One screen further down.
+                    let page = ui.clip_rect().height().max(ROW_H);
+                    ui.scroll_with_delta(vec2(0.0, -(page - GAP)));
                 }
                 let order = self.order.clone();
                 for (index, id) in order.iter().enumerate() {
@@ -1319,6 +1326,7 @@ impl Scene {
                     if let Some(ScrollRequest::Reveal(wanted)) = &scroll_request {
                         if wanted == id { ui.scroll_to_rect(rect.expand(4.0), None); }
                     }
+                    room_rects.push(rect);
                     let hit = ui.interact(rect, ui.id().with(id), egui::Sense::click());
                     room.draw(ui.painter(), rect.min, assets, self.selected.as_deref() == Some(id));
                     if hit.clicked() { response.clicked = Some(id.clone()); }
@@ -1330,6 +1338,26 @@ impl Scene {
                     });
                 }
             });
+        // Rooms hidden under the fold: a small badge, which scrolls to them.
+        let view = output.inner_rect;
+        let below = room_rects.iter().filter(|r| r.max.y > view.max.y + 8.0).count();
+        let above = room_rects.iter().filter(|r| r.min.y < view.min.y - 8.0).count();
+        for (count, down) in [(below, true), (above, false)] {
+            if count == 0 { continue; }
+            let text = if down { format!("{count} ↓") } else { format!("{count} ↑") };
+            let galley = ui.painter().layout_no_wrap(text, FontId::monospace(11.0), Color32::WHITE);
+            let size = galley.size() + vec2(12.0, 6.0);
+            let corner = if down { pos2(view.max.x - 10.0 - size.x, view.max.y - 8.0 - size.y) } else { pos2(view.max.x - 10.0 - size.x, view.min.y + TOP_PAD + 2.0) };
+            let rect = Rect::from_min_size(corner, size);
+            let hit = ui.interact(rect, ui.id().with(if down { "fold-below" } else { "fold-above" }), egui::Sense::click());
+            let painter = ui.painter();
+            painter.rect_filled(rect, CornerRadius::same(4), Color32::from_rgba_unmultiplied(0, 0, 0, 200));
+            painter.rect_stroke(rect, CornerRadius::same(4), Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, 60)), egui::StrokeKind::Inside);
+            painter.galley(rect.min + vec2(6.0, 3.0), galley, Color32::WHITE);
+            if hit.clicked() {
+                self.scroll_request = Some(if down { ScrollRequest::Down } else { ScrollRequest::Top });
+            }
+        }
         response
     }
 }
