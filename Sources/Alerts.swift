@@ -7,7 +7,7 @@ enum AlertKind: Equatable {
     case finished
 }
 
-/// Plays a short chiptune jingle for each alert. Preferences live in
+/// Plays a short, soft chime for each alert. Preferences live in
 /// UserDefaults so muting survives relaunches; the menu bar and the widget's
 /// speaker button both edit the same values.
 final class SoundAlerts: ObservableObject {
@@ -17,10 +17,10 @@ final class SoundAlerts: ObservableObject {
     @Published var onFinished: Bool { didSet { defaults.set(onFinished, forKey: "sound.finished") } }
 
     private lazy var sounds: [AlertKind: NSSound] = [
-        // Two urgent high blips, like a dungeon alarm.
-        .needsHelp: SoundAlerts.jingle([(1319, 0.07), (0, 0.04), (1319, 0.07), (0, 0.04), (1760, 0.16)]),
-        // Rising arpeggio: quest complete.
-        .finished: SoundAlerts.jingle([(523, 0.07), (659, 0.07), (784, 0.07), (1047, 0.2)])
+        // A soft two-note chime, falling a third: "ding-dong", someone is at the door.
+        .needsHelp: SoundAlerts.jingle([(784, 0.22), (659, 0.5)]),
+        // A gentle rising arpeggio that rings out: quest complete.
+        .finished: SoundAlerts.jingle([(523, 0.12), (659, 0.12), (784, 0.12), (1047, 0.6)], volume: 0.1)
     ].compactMapValues { $0 }
 
     init(defaults: UserDefaults = .standard) {
@@ -35,25 +35,43 @@ final class SoundAlerts: ObservableObject {
         enabled && (kind == .needsHelp ? onNeedsHelp : onFinished)
     }
 
+    /// Play both chimes, whatever the preferences: the menu's sound check.
+    func preview() {
+        sounds[.needsHelp]?.stop(); sounds[.needsHelp]?.play()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.3) { self.sounds[.finished]?.stop(); self.sounds[.finished]?.play() }
+    }
+
     func play(_ kind: AlertKind) {
         guard wants(kind), let sound = sounds[kind] else { return }
         sound.stop()
         sound.play()
     }
 
-    /// Square-wave notes (frequency Hz, seconds; 0 Hz is a rest) rendered to
-    /// an in-memory 16-bit mono WAV, with a quick fade so notes do not click.
-    static func jingle(_ notes: [(Double, Double)], rate: Double = 22050, volume: Double = 0.18) -> NSSound? {
-        var samples: [Int16] = []
-        for (frequency, duration) in notes {
-            let count = Int(duration * rate), fade = min(count / 4, Int(0.01 * rate))
-            for i in 0..<count {
-                guard frequency > 0 else { samples.append(0); continue }
-                let phase = (Double(i) * frequency / rate).truncatingRemainder(dividingBy: 1)
-                let edge = Double(min(i, count - 1 - i, fade)) / Double(max(fade, 1))
-                samples.append(Int16((phase < 0.5 ? 1.0 : -1.0) * volume * min(1, edge) * Double(Int16.max)))
+    /// Bell-like notes (frequency Hz, seconds until the next one; 0 Hz is a
+    /// rest) rendered to an in-memory 16-bit mono WAV. Each note is a sine
+    /// with soft overtones, a gentle attack and a natural exponential decay
+    /// that keeps ringing under the next note, so it chimes instead of beeping.
+    static func jingle(_ notes: [(Double, Double)], rate: Double = 44100, volume: Double = 0.12) -> NSSound? {
+        let ring = 0.45   // how long a note keeps sounding after the next one starts
+        let length = notes.reduce(0) { $0 + $1.1 } + ring
+        var mix = [Double](repeating: 0, count: Int(length * rate))
+        var start = 0.0
+        for (frequency, step) in notes {
+            defer { start += step }
+            guard frequency > 0 else { continue }
+            let first = Int(start * rate), count = min(Int((step + ring) * rate), mix.count - first)
+            for i in 0..<max(count, 0) {
+                let t = Double(i) / rate
+                let attack = min(1, t / 0.012)
+                let decay = exp(-t * 5.5)
+                let tone = sin(2 * .pi * frequency * t) + 0.22 * sin(4 * .pi * frequency * t) + 0.06 * sin(6 * .pi * frequency * t)
+                mix[first + i] += tone * attack * decay
             }
         }
+        // Fade the very end so the last sample is silent, then scale.
+        let tail = Int(0.03 * rate)
+        for i in 0..<min(tail, mix.count) { mix[mix.count - 1 - i] *= Double(i) / Double(tail) }
+        let samples = mix.map { Int16(max(-1, min(1, $0 * volume)) * Double(Int16.max)) }
         var wav = Data()
         func put<T: FixedWidthInteger>(_ value: T) { withUnsafeBytes(of: value.littleEndian) { wav.append(contentsOf: $0) } }
         let bytes = UInt32(samples.count * 2)

@@ -95,6 +95,7 @@ enum L10n {
         // Notifications
         "%@ necesita atención": ["%@ needs attention", "%@ demande ton attention", "%@ richiede attenzione", "%@ precisa de atenção"],
         "%@ terminó": ["%@ finished", "%@ a terminé", "%@ ha finito", "%@ terminou"],
+        "Probar sonidos": ["Play the sounds", "Écouter les sons", "Prova i suoni", "Testar sons"],
         "Notificaciones": ["Notifications", "Notifications", "Notifiche", "Notificações"],
         "Notificaciones activadas": ["Notifications on", "Notifications activées", "Notifiche attive", "Notificações ativadas"],
         // Activity log

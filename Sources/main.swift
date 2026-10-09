@@ -248,6 +248,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             item.state = on ? .on : .off
             if action != #selector(toggleSound) { item.indentationLevel = 1; item.isEnabled = sounds.enabled }
         }
+        soundMenu.addItem(.separator())
+        soundMenu.addItem(withTitle: tr("Probar sonidos"), action: #selector(previewSounds), keyEquivalent: "").target = self
         soundMenu.autoenablesItems = false
         let soundItem = menu.addItem(withTitle: tr("Sonidos"), action: nil, keyEquivalent: "")
         soundItem.submenu = soundMenu
@@ -294,6 +296,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
+    @objc func previewSounds() { sounds.preview() }
     @objc func toggleSound() { sounds.enabled.toggle() }
     @objc func toggleNeedsHelpSound() { sounds.onNeedsHelp.toggle(); sounds.play(.needsHelp) }
     @objc func toggleFinishedSound() { sounds.onFinished.toggle(); sounds.play(.finished) }
