@@ -16,38 +16,6 @@ Written in **Rust** on `egui`/`eframe`, with a status item in the menu bar or sy
 
 Prebuilt binaries for macOS (`.app`, zipped) and Linux (x86_64 tarball with a `.desktop` entry and icon) are on the [Releases](https://github.com/JoseValencia125/herdr-pixel-dungeon/releases) page. The macOS app is ad-hoc signed, not notarized: the first time, right-click it and choose Open.
 
-## Build and open
-
-Requires [Rust](https://rustup.rs) (stable) and [Herdr](https://herdr.dev) with `herdr api snapshot` support. Tested with Herdr 0.9.1.
-
-```sh
-git clone https://github.com/JoseValencia125/herdr-pixel-dungeon.git
-cd herdr-pixel-dungeon
-./scripts/build.sh
-```
-
-On **macOS** that produces `build/Herdr Pixel Dungeon.app` (a locally ad-hoc-signed bundle, so the app is menu-bar only with no Dock icon; it is not Developer ID signed or notarized):
-
-```sh
-open 'build/Herdr Pixel Dungeon.app'
-# optional installation
-mkdir -p ~/Applications && ditto 'build/Herdr Pixel Dungeon.app' "$HOME/Applications/Herdr Pixel Dungeon.app"
-```
-
-On **Linux** (X11 or Wayland) it produces `build/herdr-pixel-dungeon`. The tray icon, dialogs and sounds need GTK 3, an AppIndicator-capable tray (libayatana-appindicator), xdo and ALSA; on Debian/Ubuntu:
-
-```sh
-sudo apt install libgtk-3-dev libayatana-appindicator3-dev libxdo-dev libasound2-dev
-./scripts/build.sh
-./build/herdr-pixel-dungeon
-# optional: a launcher entry and icon
-cp build/herdr-pixel-dungeon ~/.local/bin/ && cp build/herdr-pixel-dungeon.desktop ~/.local/share/applications/ && cp build/herdr-pixel-dungeon.png ~/.local/share/icons/
-```
-
-`cargo test` and `herdr-pixel-dungeon --self-test` run the same checks (everything that works without a window). `--demo` shows fictional agents without Herdr; `--diagnose` prints what Herdr reports. `HPD_NO_HERDR=1` pretends Herdr is not installed, to try the standalone viewer. `HPD_LANG=en` forces a language (Spanish, English, French, Italian and Portuguese follow the system locale otherwise), and `HPD_REDUCE_MOTION=1` stops the animations.
-
-Close the window to keep monitoring from the menu bar, where a pixel knight's helm marks the app. Use its menu to reopen the window, set sounds and notifications, or quit. **Herdr session** lists Herdr's sessions (`herdr session list`) to switch which one the dungeon watches — agents, log and selection start over — and remembers your pick; `HERDR_SESSION` still overrides it at launch. The same menu has **Demo** to try fictional agents without Herdr, **Always on top** (on by default) and **Open at login** (a LaunchAgent on macOS, an autostart entry on Linux). The widget reopens where you left it, at the size you gave it, and remembers sounds, notifications, the session and the state filter. Live mode never inserts fictional agents.
-
 ## States and rooms
 
 | Herdr state | | Room | Hero |
@@ -103,6 +71,38 @@ Each harness has its own classic hero, coloured after the tool's brand (no logos
 - Artist credits and licenses accessible from the app.
 
 Activity means **the title reported by the terminal**, not an inferred summary. Animation represents state, not tool calls or completion percentage. Agents outside the selected Herdr session are not included. Very large rosters may share visual positions; the list remains complete.
+
+## Build and open
+
+Requires [Rust](https://rustup.rs) (stable) and [Herdr](https://herdr.dev) with `herdr api snapshot` support. Tested with Herdr 0.9.1.
+
+```sh
+git clone https://github.com/JoseValencia125/herdr-pixel-dungeon.git
+cd herdr-pixel-dungeon
+./scripts/build.sh
+```
+
+On **macOS** that produces `build/Herdr Pixel Dungeon.app` (a locally ad-hoc-signed bundle, so the app is menu-bar only with no Dock icon; it is not Developer ID signed or notarized):
+
+```sh
+open 'build/Herdr Pixel Dungeon.app'
+# optional installation
+mkdir -p ~/Applications && ditto 'build/Herdr Pixel Dungeon.app' "$HOME/Applications/Herdr Pixel Dungeon.app"
+```
+
+On **Linux** (X11 or Wayland) it produces `build/herdr-pixel-dungeon`. The tray icon, dialogs and sounds need GTK 3, an AppIndicator-capable tray (libayatana-appindicator), xdo and ALSA; on Debian/Ubuntu:
+
+```sh
+sudo apt install libgtk-3-dev libayatana-appindicator3-dev libxdo-dev libasound2-dev
+./scripts/build.sh
+./build/herdr-pixel-dungeon
+# optional: a launcher entry and icon
+cp build/herdr-pixel-dungeon ~/.local/bin/ && cp build/herdr-pixel-dungeon.desktop ~/.local/share/applications/ && cp build/herdr-pixel-dungeon.png ~/.local/share/icons/
+```
+
+`cargo test` and `herdr-pixel-dungeon --self-test` run the same checks (everything that works without a window). `--demo` shows fictional agents without Herdr; `--diagnose` prints what Herdr reports. `HPD_NO_HERDR=1` pretends Herdr is not installed, to try the standalone viewer. `HPD_LANG=en` forces a language (Spanish, English, French, Italian and Portuguese follow the system locale otherwise), and `HPD_REDUCE_MOTION=1` stops the animations.
+
+Close the window to keep monitoring from the menu bar, where a pixel knight's helm marks the app. Use its menu to reopen the window, set sounds and notifications, or quit. **Herdr session** lists Herdr's sessions (`herdr session list`) to switch which one the dungeon watches — agents, log and selection start over — and remembers your pick; `HERDR_SESSION` still overrides it at launch. The same menu has **Demo** to try fictional agents without Herdr, **Always on top** (on by default) and **Open at login** (a LaunchAgent on macOS, an autostart entry on Linux). The widget reopens where you left it, at the size you gave it, and remembers sounds, notifications, the session and the state filter. Live mode never inserts fictional agents.
 
 ## Languages
 
