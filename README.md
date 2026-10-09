@@ -8,6 +8,12 @@ Written in **Rust** on `egui`/`eframe`, with a status item in the menu bar or sy
 
 Created by **Nacho Valencia**. All pixel art is original, drawn in Aseprite for this project.
 
+<p align="center">
+  <img src="docs/media/demo.gif" width="460" alt="The widget in demo mode: six agents working, asking for attention, waiting and done">
+</p>
+
+<p align="center"><a href="docs/media/demo.mp4">Watch the full demo video</a> · <a href="docs/media/widget.png">Full-size screenshot</a></p>
+
 ## Download
 
 Prebuilt binaries for macOS (`.app`, zipped) and Linux (x86_64 tarball with a `.desktop` entry and icon) are on the [Releases](https://github.com/JoseValencia125/herdr-pixel-dungeon/releases) page. The macOS app is ad-hoc signed, not notarized: the first time, right-click it and choose Open.
