@@ -152,6 +152,7 @@ pub struct Notifier {
 impl Notifier {
     pub fn new() -> Notifier {
         let (open_tx, opened) = channel();
+        prepare();
         Notifier { opened, open_tx }
     }
 
@@ -173,6 +174,25 @@ impl Notifier {
     }
 }
 
+/// On macOS a notification is posted on behalf of an application. Set it
+/// once up front: the bundle when running inside one, else Terminal.
+/// Without this the library looks an app up by name and macOS answers with
+/// a "Where is use_default?" dialog for every notification.
+#[cfg(target_os = "macos")]
+fn prepare() {
+    let exe = std::env::current_exe().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
+    let bundle = if exe.contains("/Contents/MacOS/") { "io.github.josevalencia125.herdr-pixel-dungeon" } else { "com.apple.Terminal" };
+    if mac_notification_sys::set_application(bundle).is_err() {
+        // Not registered with Launch Services (e.g. a bundle never opened): no notifications rather than dialogs.
+        NOTIFICATIONS_OFF.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn prepare() {}
+
+static NOTIFICATIONS_OFF: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 #[cfg(target_os = "linux")]
 fn post_one(title: &str, body: &str, pane: &str, open_tx: Sender<String>) {
     let shown = notify_rust::Notification::new()
@@ -191,5 +211,6 @@ fn post_one(title: &str, body: &str, pane: &str, open_tx: Sender<String>) {
 
 #[cfg(not(target_os = "linux"))]
 fn post_one(title: &str, body: &str, _pane: &str, _open_tx: Sender<String>) {
+    if NOTIFICATIONS_OFF.load(std::sync::atomic::Ordering::Relaxed) { return; }
     let _ = notify_rust::Notification::new().summary(title).body(body).appname("Herdr Pixel Dungeon").show();
 }

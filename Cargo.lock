@@ -1734,6 +1734,7 @@ dependencies = [
  "gtk",
  "image",
  "libc",
+ "mac-notification-sys",
  "notify-rust",
  "rfd",
  "rodio",
