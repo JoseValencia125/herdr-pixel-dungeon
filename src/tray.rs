@@ -185,11 +185,13 @@ impl Tray {
                 }
             }));
         }
+        #[cfg(target_os = "linux")]
+        let updates = linux_host(actions.clone());
         let mut tray = Tray {
             actions,
             events,
             #[cfg(target_os = "linux")]
-            updates: linux_host(actions.clone()),
+            updates,
             #[cfg(not(target_os = "linux"))]
             icon: None,
             shown: None,
