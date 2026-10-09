@@ -237,6 +237,24 @@ func connectionNote(error: String?, updated: Date?, now: Date = Date(), staleAft
     return (tr("Datos sin actualizar · última actualización %@", ago), false)
 }
 
+/// Harnesses offered when creating an agent (all are `herdr agent start --kind` values).
+let creatableKinds = ["claude", "codex", "gemini", "kiro", "opencode", "cursor", "copilot", "amp"]
+
+/// A unique, readable Herdr agent name: kind, folder and a short suffix.
+func agentName(kind: String, folder: String) -> String {
+    let slug = folder.lowercased().map { $0.isLetter || $0.isNumber ? $0 : "-" }.reduce("") { $0 + String($1) }
+        .split(separator: "-").joined(separator: "-")
+    return "\(kind)-\(slug.isEmpty ? "agent" : String(slug.prefix(24)))-\(String(UUID().uuidString.prefix(4)).lowercased())"
+}
+
+/// The new pane's id in `herdr workspace create` output (`.result.root_pane`).
+func rootPane(_ data: Data) -> String? {
+    guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let result = root["result"] as? [String: Any] else { return nil }
+    if let pane = result["root_pane"] as? [String: Any] { return pane["pane_id"] as? String }
+    return result["root_pane"] as? String
+}
+
 /// A Herdr session, from `herdr session list --json`.
 struct HerdrSession: Equatable {
     let name: String
@@ -304,7 +322,9 @@ final class Monitor: ObservableObject {
         filter = StatusFilter(rawValue: UserDefaults.standard.string(forKey: "filter.status") ?? "") ?? .all
     }
     /// The room the user clicked; its chat panel is open while set.
-    @Published var selected: String? { didSet { if selected != oldValue { onChange?() } } }
+    @Published var selected: String? { didSet { if selected != oldValue { if selected != nil { composing = false }; onChange?() } } }
+    /// The "new agent" panel is open.
+    @Published var composing = false { didSet { if composing != oldValue { if composing { selected = nil }; onChange?() } } }
     /// The Herdr session watched: HERDR_SESSION when set, else the one picked
     /// last time from the menu bar, else "default".
     @Published private(set) var session = ProcessInfo.processInfo.environment["HERDR_SESSION"]
@@ -416,6 +436,42 @@ extension Monitor {
         act(["agent", "send-keys", agent.id, "esc"]) { failure in
             if let failure = failure { return done(failure) }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: exit)
+        }
+    }
+
+    /// Start a new agent: a Herdr workspace in `folder` (its root pane is a
+    /// fresh shell), `herdr agent start` of `kind` in it, then the first
+    /// prompt if there is one. It shows up in the dungeon with the next
+    /// snapshot. `done` gets nil or an error message.
+    func create(kind: String, folder: String, prompt: String, done: @escaping (String?) -> Void) {
+        let selectedSession = session, demoMode = demo
+        let path = (folder as NSString).expandingTildeInPath
+        let label = (path as NSString).lastPathComponent
+        let name = agentName(kind: kind, folder: label)
+        DispatchQueue.global(qos: .userInitiated).async {
+            var failure: String?
+            if !demoMode {
+                do {
+                    var isDir: ObjCBool = false
+                    guard FileManager.default.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue else {
+                        throw MonitorError.message(tr("La carpeta no existe."))
+                    }
+                    let created = try runHerdr(["workspace", "create", "--cwd", path, "--label", label, "--no-focus"], session: selectedSession, timeout: 8)
+                    guard let pane = rootPane(created) else { throw MonitorError.message(tr("Herdr no devolvió el panel nuevo.")) }
+                    do { try runHerdr(["agent", "start", name, "--kind", kind, "--pane", pane, "--timeout", "60000"], session: selectedSession, timeout: 65) }
+                    catch { throw MonitorError.message(tr("%@ no arrancó. Revisa que esté instalado.", kind)) }
+                    let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !text.isEmpty {
+                        do { try runHerdr(["agent", "prompt", name, text, "--timeout", "8000"], session: selectedSession, timeout: 10) }
+                        catch { throw MonitorError.message(tr("El agente arrancó, pero no recibió el prompt.")) }
+                    }
+                } catch { failure = error.localizedDescription }
+            }
+            DispatchQueue.main.async {
+                if failure == nil { self.events.insert(GuildEvent(text: tr("Invocaste a %@ en %@", kind, label), tone: "joined"), at: 0) }
+                done(failure)
+                self.refresh()
+            }
         }
     }
 

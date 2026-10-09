@@ -29,7 +29,10 @@ struct Dashboard: View {
                         .overlay(alignment:.top) { if let note = note { ConnectionBanner(text:note.text,lost:note.lost) } }
                 }
                 if monitor.showsHUD { HUD(monitor:monitor,onLog:{showLog.toggle()}) }
-                if let agent = monitor.agents.first(where:{$0.id == monitor.selected}) {
+                if monitor.composing {
+                    NewAgentPanel(monitor:monitor)
+                        .transition(.move(edge:.bottom).combined(with:.opacity))
+                } else if let agent = monitor.agents.first(where:{$0.id == monitor.selected}) {
                     ChatPanel(monitor:monitor,agent:agent,onClose:{monitor.selected=nil})
                         .id(agent.id)
                         .transition(.move(edge:.bottom).combined(with:.opacity))
@@ -89,6 +92,13 @@ struct Dashboard: View {
 
     private var controls: some View {
         HStack(spacing:7) {
+            Button { monitor.composing.toggle() } label: {
+                Image(systemName:"plus.circle.fill").font(.system(size:14))
+                    .foregroundStyle(Color(red:0.55,green:0.85,blue:0.45))
+                    .frame(width:17,height:15)
+            }
+            .buttonStyle(.plain)
+            .help(tr("Invocar un agente nuevo"))
             Button { showLog.toggle() } label: {
                 Image(systemName:"scroll.fill").font(.system(size:13))
                     .foregroundStyle(Color(red:0.93,green:0.84,blue:0.62).opacity(showLog ? 1 : 0.85))
@@ -509,6 +519,93 @@ private struct WindowDragArea: NSViewRepresentable {
     }
     func makeNSView(context: Context) -> NSView { DragView() }
     func updateNSView(_ nsView: NSView, context: Context) {}
+}
+
+/// Opens under the rooms from the + button: pick a harness, a folder (one
+/// of the agents' or any other) and an optional first prompt, and Herdr
+/// starts the agent in a new workspace there.
+struct NewAgentPanel: View {
+    @ObservedObject var monitor: Monitor
+    @AppStorage("create.kind") private var kind = "claude"
+    @AppStorage("create.folder") private var folder = ""
+    @State private var prompt = ""
+    @State private var busy = false
+    @State private var note: String?
+
+    var body: some View {
+        VStack(alignment:.leading,spacing:7) {
+            HStack(spacing:6) {
+                Image(systemName:"plus.circle.fill").foregroundStyle(Color(red:0.55,green:0.85,blue:0.45))
+                Text(tr("Invocar un agente")).font(.system(size:12,weight:.bold,design:.monospaced))
+                Spacer()
+                Button { monitor.composing = false } label: { Image(systemName:"xmark") }
+                    .buttonStyle(.plain).keyboardShortcut(.cancelAction).help(tr("Cerrar"))
+            }
+            HStack(spacing:6) {
+                Picker("",selection:$kind) { ForEach(creatableKinds,id:\.self) { Text($0).tag($0) } }
+                    .labelsHidden().frame(width:96)
+                Menu {
+                    ForEach(knownFolders,id:\.self) { path in Button(path) { folder = path } }
+                    if !knownFolders.isEmpty { Divider() }
+                    Button(tr("Elegir carpeta…"),action:chooseFolder)
+                } label: {
+                    Text(folder.isEmpty ? tr("Carpeta…") : (folder as NSString).abbreviatingWithTildeInPath).lineLimit(1).truncationMode(.head)
+                }
+                .help(folder)
+            }
+            ZStack(alignment:.topLeading) {
+                TextEditor(text:$prompt)
+                    .font(.system(size:11,design:.monospaced))
+                    .scrollContentBackground(.hidden)
+                    .padding(3)
+                if prompt.isEmpty {
+                    Text(tr("Primer prompt (opcional)")).font(.system(size:11,design:.monospaced)).foregroundStyle(.secondary)
+                        .padding(.horizontal,8).padding(.vertical,3).allowsHitTesting(false)
+                }
+            }
+            .background(Color.black.opacity(0.45),in:RoundedRectangle(cornerRadius:5))
+            HStack(spacing:6) {
+                if busy { ProgressView().controlSize(.small); Text(tr("Invocando…")).font(.system(size:10)).foregroundStyle(.secondary) }
+                else if let note = note { Text(note).font(.system(size:10)).foregroundStyle(.orange).lineLimit(2) }
+                Spacer()
+                Button(tr("Invocar"),action:create)
+                    .keyboardShortcut(.return,modifiers:.command)
+                    .disabled(busy || folder.isEmpty)
+                    .help(tr("Crear el agente (⌘⏎)"))
+            }
+            .controlSize(.small)
+        }
+        .padding(.horizontal,10).padding(.vertical,8)
+        .frame(height:ChatPanel.height)
+        .background(Color(red:0.09,green:0.08,blue:0.11))
+        .overlay(Rectangle().fill(Color(red:0.55,green:0.85,blue:0.45).opacity(0.7)).frame(height:1),alignment:.top)
+        .onAppear { if folder.isEmpty { folder = knownFolders.first ?? "" } }
+    }
+
+    /// Folders the current agents work in, most common first.
+    private var knownFolders: [String] {
+        let paths = monitor.agents.map { ($0.cwd as NSString).expandingTildeInPath }
+        var seen = Set<String>()
+        return paths.filter { seen.insert($0).inserted }
+    }
+
+    private func chooseFolder() {
+        NSApp.activate(ignoringOtherApps: true)
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        if !folder.isEmpty { panel.directoryURL = URL(fileURLWithPath: folder) }
+        if panel.runModal() == .OK, let url = panel.url { folder = url.path }
+    }
+
+    private func create() {
+        busy = true; note = nil
+        monitor.create(kind:kind,folder:folder,prompt:prompt) { failure in
+            busy = false
+            if let failure = failure { note = failure } else { prompt = ""; monitor.composing = false }
+        }
+    }
 }
 
 /// Pixel grip in the bottom-right corner: drag it to resize the widget

@@ -80,8 +80,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             let count = self.monitor.agents.filter { $0.status == "blocked" }.count
             self.status.button?.toolTip = tr("Herdr Pixel Dungeon · %ld necesitan atención", count)
             self.fitSize()
-            // Typing in the chat panel needs the widget to be the key window.
-            if self.monitor.selected != nil { self.window.makeKey() }
+            // Typing in the chat or new-agent panel needs the widget to be the key window.
+            if self.monitor.selected != nil || self.monitor.composing { self.window.makeKey() }
         }
         monitor.onAlerts = { [weak self] alerts in
             guard let self = self, let first = alerts.first else { return }
@@ -126,7 +126,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     /// Height of everything that is not rooms: insets, HUD and chat panel.
     var chrome: CGFloat {
-        topInset + bottomInset + (monitor.selected == nil ? 0 : ChatPanel.height) + (monitor.showsHUD ? HUD.height : 0)
+        topInset + bottomInset + (monitor.selected == nil && !monitor.composing ? 0 : ChatPanel.height) + (monitor.showsHUD ? HUD.height : 0)
     }
 
     /// Height that shows the agents' rows, up to the user's row count (at
@@ -360,8 +360,10 @@ func selfTest() throws {
     precondition(DungeonScene.columns(fitting:10)==1 && DungeonScene.width(columns:2)==458)
     let listed=decodeSessions(Data(#"{"sessions":[{"default":true,"name":"default","running":true},{"name":"work","running":false}]}"#.utf8))
     precondition(listed==[HerdrSession(name:"default",running:true),HerdrSession(name:"work",running:false)] && decodeSessions(Data("nope".utf8)).isEmpty)
+    let named=agentName(kind:"codex",folder:"Mi Proyecto_2");precondition(named.hasPrefix("codex-mi-proyecto-2-") && named.count==24,"Agent name: \(named)")
+    precondition(rootPane(Data(#"{"result":{"root_pane":{"pane_id":"w3:p1"},"tab":{}}}"#.utf8))=="w3:p1" && rootPane(Data("{}".utf8))==nil)
     var fired=false;let item=ClosureMenuItem(title:"x"){fired=true};_=(item.target as AnyObject).perform(item.action,with:item);precondition(fired,"Context menu item did not fire")
-    print("PASS: snapshot states, filtering, empty/error handling, monitor transitions, room art, heroes, subagent sessions, subagents keep agents busy, tool actions, translations, git branch, sound alerts + prefs, notifications + prefs, chat selection, question options, filters and search, connection notes, flex-wrap columns, sessions, context menu, question extraction, \(files.count) bundled sprites")
+    print("PASS: snapshot states, filtering, empty/error handling, monitor transitions, room art, heroes, subagent sessions, agent creation, subagents keep agents busy, tool actions, translations, git branch, sound alerts + prefs, notifications + prefs, chat selection, question options, filters and search, connection notes, flex-wrap columns, sessions, agent creation, context menu, question extraction, \(files.count) bundled sprites")
 }
 
 if CommandLine.arguments.contains("--self-test") {
