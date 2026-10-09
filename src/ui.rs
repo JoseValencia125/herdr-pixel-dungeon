@@ -346,12 +346,17 @@ pub fn chat_panel(ui: &mut Ui, monitor: &Monitor, agent: &Agent, state: &mut Cha
                 if flat_button(ui, mono("A-", 11.0).color(Color32::from_gray(200))).on_hover_text(format!("{} (⌘⇧-)", tr("Consola más pequeña"))).clicked() { action.console_step = -1; }
             });
         });
-        let body_height = total - 7.0 * 2.0 - 22.0 - if standalone { 14.0 } else { 36.0 } - if state.note.is_some() { 16.0 } else { 0.0 };
+        let asking = agent.status == "blocked" && !state.lines.is_empty();
+        // Full screen: the box to type in sits on the terminal's own prompt
+        // line (❯, ›), where typing happens in the terminal; without one in
+        // sight it stays under the console.
+        let prompt_line = if wide && !asking && !standalone { prompt_line(&state.screen) } else { None };
+        let inline = prompt_line.is_some();
+        let body_height = total - 7.0 * 2.0 - 22.0 - if standalone { 14.0 } else if inline { 0.0 } else { 36.0 } - if state.note.is_some() { 16.0 } else { 0.0 };
         Frame::new().fill(alpha(Color32::BLACK, 0.45)).corner_radius(CornerRadius::same(5)).inner_margin(Margin::same(6)).show(ui, |ui| {
             ui.set_min_height(body_height.max(40.0));
             ui.set_max_height(body_height.max(40.0));
             ui.set_width(ui.available_width());
-            let asking = agent.status == "blocked" && !state.lines.is_empty();
             // The screen as the terminal paints it, colours and all.
             if !asking && !state.screen.is_empty() {
                 // Full screen: the widest line sets the font, so terminal
@@ -360,9 +365,21 @@ pub fn chat_panel(ui: &mut Ui, monitor: &Monitor, agent: &Agent, state: &mut Cha
                 let widest = state.screen.iter().map(|l| l.iter().map(|s| s.text.chars().count()).sum::<usize>()).max().unwrap_or(1).max(1) as f32;
                 let base = if wide { (ui.available_width() / (widest * 0.62)).clamp(7.0, 12.0) } else { 11.0 };
                 let size = (base * console_scale()).round().max(6.0);
+                let screen = state.screen.clone();
                 egui::ScrollArea::vertical().auto_shrink([false, false]).stick_to_bottom(true).show(ui, |ui| {
                     ui.spacing_mut().item_spacing = vec2(0.0, 2.0);
-                    for line in &state.screen {
+                    for (index, line) in screen.iter().enumerate() {
+                        if prompt_line == Some(index) {
+                            // The prompt's glyph, then the box in the terminal's own font.
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing = vec2(6.0, 0.0);
+                                if let Some(glyph) = line.iter().find(|s| !s.text.trim().is_empty()).map(|s| Span { text: s.text.trim_start().chars().take(1).collect(), ..s.clone() }) {
+                                    ui.add(screen_line(&[glyph], size));
+                                }
+                                input_row(ui, monitor, agent, state, &menu, sending, size, false);
+                            });
+                            continue;
+                        }
                         // A rule the terminal's width: drawn to this width instead of wrapping.
                         let text: String = line.iter().map(|s| s.text.as_str()).collect();
                         let rule = text.trim();
@@ -408,47 +425,66 @@ pub fn chat_panel(ui: &mut Ui, monitor: &Monitor, agent: &Agent, state: &mut Cha
             ui.label(mono(&tr("Instala Herdr para responder desde aquí."), 10.0).color(DIM));
             return;
         }
-        ui.horizontal(|ui| {
-            let hint = if agent.status == "blocked" { trf("↑↓ y ⏎ eligen · o responde a {}…", &[&agent.name]) } else { trf("Escribir a {}…", &[&agent.name]) };
-            let buttons_width = match agent.status.as_str() { "blocked" => 150.0, "working" => 80.0, _ => 26.0 };
-            let mut draft = state.draft.clone();
-            // Roomy: the box is a line and a half tall, so typing does not feel cramped.
-            let edit = egui::TextEdit::singleline(&mut draft).hint_text(hint).font(FontId::monospace(fs(13.0))).margin(Margin::symmetric(8, 8)).desired_width(ui.available_width() - buttons_width).interactive(!sending);
-            let response = ui.add(edit);
-            if state.focus { response.request_focus(); state.focus = false; }
-            let submitted = response.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
-            let empty = draft.trim().is_empty();
-            state.draft = draft;
-            if submitted && !sending {
-                if agent.status == "blocked" && empty {
-                    // Nothing typed: ⏎ picks the option its terminal already highlights.
-                    state.run(monitor.press(&["enter".into()], agent));
-                } else {
-                    submit(state, monitor, agent, &menu);
-                }
-                state.focus = true;
-            }
-            if ui.add_enabled(!sending && !empty, egui::Button::new(mono("→", 13.0)).frame(false)).on_hover_text(tr("Enviar (⏎)")).clicked() {
-                submit(state, monitor, agent, &menu);
-            }
-            if agent.status == "blocked" {
-                if ui.add_enabled(!sending, egui::Button::new(mono(&tr("Aceptar"), 11.0))).on_hover_text(tr("Elegir la opción marcada del agente (⏎ en su terminal)")).clicked() {
-                    match state.choice { Some(choice) => answer(state, monitor, agent, &menu, choice), None => state.run(monitor.press(&["enter".into()], agent)) }
-                }
-                if ui.add_enabled(!sending, egui::Button::new(mono(&tr("Rechazar"), 11.0))).on_hover_text(tr("Cancelar la petición del agente (esc en su terminal)")).clicked() {
-                    state.run(monitor.press(&["esc".into()], agent));
-                }
-            } else if agent.status == "working" {
-                if ui.add_enabled(!sending, egui::Button::new(mono(&tr("Detener"), 11.0))).on_hover_text(tr("Interrumpir al agente (esc en su terminal)")).clicked() {
-                    state.run(monitor.press(&["esc".into()], agent));
-                }
-            }
-        });
+        if !inline { input_row(ui, monitor, agent, state, &menu, sending, fs(13.0), true); }
         if let Some(note) = &state.note {
             ui.label(RichText::new(note).size(fs(10.0)).color(Color32::from_rgb(255, 159, 10)));
         }
     });
     action
+}
+
+/// The box to type to the agent, with its send button and the buttons a
+/// question or a run gets. `font` is its text size; `roomy` pads it as the
+/// widget's own row (a line and a half tall).
+fn input_row(ui: &mut Ui, monitor: &Monitor, agent: &Agent, state: &mut ChatState, menu: &MenuOptions, sending: bool, font: f32, roomy: bool) {
+    ui.horizontal(|ui| {
+        let hint = if agent.status == "blocked" { trf("↑↓ y ⏎ eligen · o responde a {}…", &[&agent.name]) } else { trf("Escribir a {}…", &[&agent.name]) };
+        let buttons_width = match agent.status.as_str() { "blocked" => 150.0, "working" => 80.0, _ => 26.0 };
+        let mut draft = state.draft.clone();
+        // Roomy: the box is a line and a half tall, so typing does not feel cramped.
+        let margin = if roomy { Margin::symmetric(8, 8) } else { Margin::symmetric(6, 3) };
+        let edit = egui::TextEdit::singleline(&mut draft).hint_text(hint).font(FontId::monospace(font)).margin(margin).desired_width(ui.available_width() - buttons_width).interactive(!sending);
+        let response = ui.add(edit);
+        if state.focus { response.request_focus(); state.focus = false; }
+        let submitted = response.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+        let empty = draft.trim().is_empty();
+        state.draft = draft;
+        if submitted && !sending {
+            if agent.status == "blocked" && empty {
+                // Nothing typed: ⏎ picks the option its terminal already highlights.
+                state.run(monitor.press(&["enter".into()], agent));
+            } else {
+                submit(state, monitor, agent, menu);
+            }
+            state.focus = true;
+        }
+        if ui.add_enabled(!sending && !empty, egui::Button::new(mono("→", 13.0)).frame(false)).on_hover_text(tr("Enviar (⏎)")).clicked() {
+            submit(state, monitor, agent, menu);
+        }
+        if agent.status == "blocked" {
+            if ui.add_enabled(!sending, egui::Button::new(mono(&tr("Aceptar"), 11.0))).on_hover_text(tr("Elegir la opción marcada del agente (⏎ en su terminal)")).clicked() {
+                match state.choice { Some(choice) => answer(state, monitor, agent, &menu, choice), None => state.run(monitor.press(&["enter".into()], agent)) }
+            }
+            if ui.add_enabled(!sending, egui::Button::new(mono(&tr("Rechazar"), 11.0))).on_hover_text(tr("Cancelar la petición del agente (esc en su terminal)")).clicked() {
+                state.run(monitor.press(&["esc".into()], agent));
+            }
+        } else if agent.status == "working" {
+            if ui.add_enabled(!sending, egui::Button::new(mono(&tr("Detener"), 11.0))).on_hover_text(tr("Interrumpir al agente (esc en su terminal)")).clicked() {
+                state.run(monitor.press(&["esc".into()], agent));
+            }
+        }
+    });
+}
+
+/// The terminal's prompt line, where the agent takes typing: the last line
+/// starting with ❯ (Claude Code), › (Kiro, Codex) or >.
+fn prompt_line(screen: &[Vec<Span>]) -> Option<usize> {
+    screen.iter().rposition(|line| {
+        let text: String = line.iter().map(|s| s.text.as_str()).collect();
+        let text = text.trim_start();
+        let mut chars = text.chars();
+        matches!(chars.next(), Some('❯' | '›' | '>')) && matches!(chars.next(), None | Some(' ' | '\u{a0}'))
+    })
 }
 
 fn submit(state: &mut ChatState, monitor: &Monitor, agent: &Agent, menu: &MenuOptions) {
