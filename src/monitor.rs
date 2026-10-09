@@ -566,9 +566,10 @@ impl Monitor {
         rx
     }
 
-    /// The agent's terminal as it shows, colours included (ANSI), for the
-    /// full-screen console. Demo mode paints a plausible screen.
-    pub fn screen(&self, agent: &Agent) -> Receiver<String> {
+    /// The agent's terminal as it shows, colours included (ANSI): the
+    /// visible screen, or with `history` the last few hundred lines of its
+    /// scrollback, to scroll through. Demo mode paints a plausible screen.
+    pub fn screen(&self, agent: &Agent, history: bool) -> Receiver<String> {
         let (tx, rx) = channel();
         let session = self.session.clone();
         let demo = self.demo;
@@ -578,7 +579,8 @@ impl Monitor {
             let text = if demo || agent.id.starts_with("pid:") {
                 format!("\x1b[38;2;215;119;87m●\x1b[0m \x1b[1m{}\x1b[0m\n  \x1b[2m⎿ Leyendo archivos del proyecto…\x1b[0m\n\n\x1b[38;2;136;136;136m────────────────────────────\x1b[0m\n❯ \x1b[2mTry \"fix the failing test\"\x1b[0m", agent.activity)
             } else {
-                run_herdr(&["agent", "read", &agent.id, "--source", "visible", "--lines", "80", "--format", "ansi"], &session, Duration::from_secs(4))
+                let (source, lines) = if history { ("recent", "300") } else { ("visible", "80") };
+                run_herdr(&["agent", "read", &agent.id, "--source", source, "--lines", lines, "--format", "ansi"], &session, Duration::from_secs(4))
                     .map(|d| String::from_utf8_lossy(&d).to_string())
                     .unwrap_or_default()
             };

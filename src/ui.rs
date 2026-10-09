@@ -271,7 +271,7 @@ pub fn chat_panel(ui: &mut Ui, monitor: &Monitor, agent: &Agent, state: &mut Cha
         state.next_tail = now + 2.0;
     }
     if now >= state.next_screen && state.screen_rx.is_none() {
-        state.screen_rx = Some(monitor.screen(agent));
+        state.screen_rx = Some(monitor.screen(agent, wide));
         state.next_screen = now + 0.5;
     }
     if let Some(rx) = &state.screen_rx {
@@ -359,10 +359,12 @@ pub fn chat_panel(ui: &mut Ui, monitor: &Monitor, agent: &Agent, state: &mut Cha
             ui.set_width(ui.available_width());
             // The screen as the terminal paints it, colours and all.
             if !asking && !state.screen.is_empty() {
-                // Full screen: the widest line sets the font, so terminal
-                // lines stay whole; the widget wraps them instead. Then the
-                // console's own size factor, apart from the panels' text size.
-                let widest = state.screen.iter().map(|l| l.iter().map(|s| s.text.chars().count()).sum::<usize>()).max().unwrap_or(1).max(1) as f32;
+                // Full screen: the widest of the last lines (a screenful)
+                // sets the font, so terminal lines stay whole; the widget
+                // wraps them instead. Then the console's own size factor,
+                // apart from the panels' text size.
+                let recent = &state.screen[state.screen.len().saturating_sub(60)..];
+                let widest = recent.iter().map(|l| l.iter().map(|s| s.text.chars().count()).sum::<usize>()).max().unwrap_or(1).max(1) as f32;
                 let base = if wide { (ui.available_width() / (widest * 0.62)).clamp(7.0, 12.0) } else { 11.0 };
                 let size = (base * console_scale()).round().max(6.0);
                 let screen = state.screen.clone();
