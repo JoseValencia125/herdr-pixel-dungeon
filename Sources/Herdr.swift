@@ -28,7 +28,10 @@ enum MonitorError: LocalizedError {
     var errorDescription: String? { if case .message(let value) = self { return value }; return nil }
 }
 
-func decodeSnapshot(_ data: Data) throws -> [Agent] {
+func decodeSnapshot(_ data: Data) throws -> [Agent] { try decodeSnapshotParts(data).agents }
+
+/// A snapshot's agents (sorted, attention first) and its workspace labels.
+func decodeSnapshotParts(_ data: Data) throws -> (agents: [Agent], names: [String: String]) {
     guard let root = try JSONSerialization.jsonObject(with: data) as? [String:Any],
           let result = root["result"] as? [String:Any],
           let snapshot = result["snapshot"] as? [String:Any],
@@ -41,17 +44,31 @@ func decodeSnapshot(_ data: Data) throws -> [Agent] {
     }
     var unique: [String:Agent] = [:]
     for row in agents {
-        guard let id = row["pane_id"] as? String, let name = row["agent"] as? String else { continue }
-        let cwd = row["foreground_cwd"] as? String ?? row["cwd"] as? String ?? ""
-        let raw = row["agent_status"] as? String ?? "unknown"
-        let status = ["working", "blocked", "idle", "done"].contains(raw) ? raw : "unknown"
-        unique[id] = Agent(id: id, name: name, status: status,
-                          project: names[row["workspace_id"] as? String ?? ""] ?? URL(fileURLWithPath: cwd).lastPathComponent,
-                          activity: row["terminal_title_stripped"] as? String ?? row["terminal_title"] as? String ?? tr("Sin título de actividad"),
-                          cwd: (cwd as NSString).abbreviatingWithTildeInPath,
-                          session: (row["agent_session"] as? [String:Any])?["value"] as? String)
+        if let agent = agentFromRow(row, names: names) { unique[agent.id] = agent }
     }
-    return unique.values.sorted { $0.rank == $1.rank ? $0.id.localizedStandardCompare($1.id) == .orderedAscending : $0.rank < $1.rank }
+    return (sortAgents(Array(unique.values)), names)
+}
+
+/// An agent from a Herdr pane row (a snapshot's agent or an event's pane),
+/// or nil when no agent runs in the pane.
+func agentFromRow(_ row: [String:Any], names: [String:String]) -> Agent? {
+    guard let id = row["pane_id"] as? String, let name = row["agent"] as? String else { return nil }
+    let cwd = row["foreground_cwd"] as? String ?? row["cwd"] as? String ?? ""
+    return Agent(id: id, name: name, status: agentStatus(row["agent_status"]),
+                 project: names[row["workspace_id"] as? String ?? ""] ?? URL(fileURLWithPath: cwd).lastPathComponent,
+                 activity: row["terminal_title_stripped"] as? String ?? row["terminal_title"] as? String ?? tr("Sin título de actividad"),
+                 cwd: (cwd as NSString).abbreviatingWithTildeInPath,
+                 session: (row["agent_session"] as? [String:Any])?["value"] as? String)
+}
+
+func agentStatus(_ raw: Any?) -> String {
+    let raw = raw as? String ?? "unknown"
+    return ["working", "blocked", "idle", "done"].contains(raw) ? raw : "unknown"
+}
+
+/// Attention first, then working, waiting, done; ties by pane id.
+func sortAgents(_ agents: [Agent]) -> [Agent] {
+    agents.sorted { $0.rank == $1.rank ? $0.id.localizedStandardCompare($1.id) == .orderedAscending : $0.rank < $1.rank }
 }
 
 /// Locate the herdr binary: HERDR_BIN, the usual install spots, then PATH.
@@ -86,9 +103,15 @@ func runHerdr(_ arguments: [String], session: String, timeout seconds: TimeInter
 }
 
 func fetchSnapshot(session: String) throws -> [Agent] {
-    let data = try runHerdr(["api", "snapshot"], session: session)
+    enrich(try decodeSnapshot(runHerdr(["api", "snapshot"], session: session)))
+}
+
+/// Add what Herdr does not know, from local files only (no processes): git
+/// branch, Claude background jobs and subagents, and each harness's last
+/// tool from its own session log.
+func enrich(_ agents: [Agent]) -> [Agent] {
     let jobs = backgroundJobs()
-    return try decodeSnapshot(data).map { agent in
+    return agents.map { agent in
         var agent = agent
         let path = (agent.cwd as NSString).expandingTildeInPath
         agent.branch = gitBranch(at: path)
@@ -337,7 +360,21 @@ final class Monitor: ObservableObject {
     @Published private(set) var session = ProcessInfo.processInfo.environment["HERDR_SESSION"]
         ?? UserDefaults.standard.string(forKey: "session") ?? "default"
     private var busy = false
+    private var again = false          // a refresh was asked for while one ran
     private var timer: Timer?
+    // Herdr's view of the agents before local enrichment: from a snapshot,
+    // then kept current by the event stream.
+    private var base: [Agent] = []
+    private var names: [String: String] = [:]
+    private var lastSnapshot: Date?
+    private var needsSnapshot = true
+    private var stream: HerdrStream?
+    private var streamPanes: [String] = []
+    private(set) var streamUp = false
+    private var nextStreamTry = Date.distantPast
+    private var socketPath: String?    // the session's socket, looked up once per connection
+    /// Snapshots double as a reconciliation while the stream is live.
+    static let reconcileEvery: TimeInterval = 60
     private var tick = 0
     private var generation = 0
     var onChange: (() -> Void)?
@@ -349,12 +386,19 @@ final class Monitor: ObservableObject {
     func setDemo(_ enabled: Bool) {
         generation += 1; demo = enabled; reset()
     }
+    /// Drop the event stream and Herdr's cached view: the next refresh
+    /// starts over with a snapshot.
+    private func dropStream() {
+        stream?.stop(); stream = nil; streamPanes = []; streamUp = false
+        base = []; names = [:]; lastSnapshot = nil; needsSnapshot = true; nextStreamTry = .distantPast; socketPath = nil
+    }
     /// Watch another Herdr session, starting over with its agents.
     func setSession(_ name: String) {
         guard name != session else { return }
         generation += 1; session = name; UserDefaults.standard.set(name, forKey: "session"); reset()
     }
     private func reset() {
+        dropStream()
         agents = []; events = []; updated = nil; error = nil; selected = nil
         onChange?(); refresh()
     }
@@ -375,22 +419,92 @@ final class Monitor: ObservableObject {
         events = Array(events.prefix(40)); agents = next; updated = Date(); error = nil
         if let selected = selected, !ids.contains(selected) { self.selected = nil }
     }
+    /// Every second: enrich Herdr's view from local files and show it.
+    /// Herdr itself is read with a snapshot only to bootstrap, after a
+    /// structural event, once a minute to reconcile, or every time while the
+    /// event stream is down (the old polling, as a fallback).
     func refresh() {
-        guard !busy else { return }
+        guard !busy else { again = true; return }
         busy = true
         let currentGeneration = generation, demoMode = demo, currentTick = tick, selectedSession = session
+        let snapshot = !demoMode && (needsSnapshot || !streamUp || Date().timeIntervalSince(lastSnapshot ?? .distantPast) > Monitor.reconcileEvery)
+        let known = base
         tick += 1
         DispatchQueue.global(qos: .utility).async {
-            let result = Result { demoMode ? demoAgents(tick: currentTick) : try fetchSnapshot(session: selectedSession) }
+            let result = Result { () -> (fresh: (agents: [Agent], names: [String: String])?, shown: [Agent]) in
+                if demoMode { return (nil, demoAgents(tick: currentTick)) }
+                if snapshot {
+                    let fresh = try decodeSnapshotParts(runHerdr(["api", "snapshot"], session: selectedSession))
+                    return (fresh, enrich(fresh.agents))
+                }
+                return (nil, enrich(known))
+            }
             DispatchQueue.main.async {
                 self.busy = false
                 guard currentGeneration == self.generation else { self.refresh(); return }
                 switch result {
-                case .success(let agents): self.apply(agents)
-                case .failure(let error): self.error = error.localizedDescription
+                case .success(let read):
+                    if let fresh = read.fresh {
+                        self.base = fresh.agents; self.names = fresh.names
+                        self.lastSnapshot = Date(); self.needsSnapshot = false
+                    }
+                    self.apply(read.shown)
+                    if !demoMode { self.keepStream() }
+                case .failure(let error):
+                    self.error = error.localizedDescription
+                    self.needsSnapshot = true
                 }
                 self.onChange?()
+                if self.again { self.again = false; self.refresh() }
             }
+        }
+    }
+
+    /// Keep one event stream open on the current agent panes, reopening it
+    /// when they change and retrying a few seconds after it drops.
+    private func keepStream() {
+        let panes = base.map(\.id).sorted()
+        guard stream == nil || panes != streamPanes, Date() >= nextStreamTry else { return }
+        stream?.stop()
+        streamPanes = panes
+        let selectedSession = session, currentGeneration = generation
+        let wasUp = streamUp, cached = socketPath
+        stream = nil
+        DispatchQueue.global(qos: .utility).async {
+            let path = cached ?? herdrSocket(session: selectedSession)
+            DispatchQueue.main.async {
+                self.socketPath = path
+                guard currentGeneration == self.generation, self.stream == nil else { return }
+                guard let path = path else { self.streamUp = false; self.nextStreamTry = Date().addingTimeInterval(5); return }
+                let next = HerdrStream(socketPath: path, panes: panes)
+                next.onOpen = { [weak self, weak next] in
+                    guard let self = self, self.stream === next else { return }
+                    self.streamUp = true
+                    // Anything that changed while (re)subscribing is caught by a snapshot.
+                    if !wasUp { self.needsSnapshot = true }
+                }
+                next.onEvent = { [weak self, weak next] event in
+                    guard let self = self, self.stream === next else { return }
+                    self.handle(event)
+                }
+                next.onClose = { [weak self, weak next] in
+                    guard let self = self, self.stream === next else { return }
+                    self.stream = nil; self.streamPanes = []; self.streamUp = false; self.needsSnapshot = true
+                    self.socketPath = nil   // look it up again: the server may have moved
+                    self.nextStreamTry = Date().addingTimeInterval(3)
+                }
+                self.stream = next
+                next.start()
+            }
+        }
+    }
+
+    /// An event from Herdr: apply it and show it right away, or ask for a snapshot.
+    private func handle(_ event: [String: Any]) {
+        switch applyHerdrEvent(event, to: &base, names: names) {
+        case .none: return
+        case .changed: refresh()
+        case .resync: needsSnapshot = true; refresh()
         }
     }
 }

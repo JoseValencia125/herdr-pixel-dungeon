@@ -416,8 +416,18 @@ func selfTest() throws {
     let kiro=#"{"version":"v1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"x"},{"kind":"toolUse","data":{"name":"shell","input":{}}}]}}"#
     precondition(kiroAction(transcriptTail:kiro)=="brew" && kiroAction(transcriptTail:#"{"kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"hola"}]}}"#)=="type" && kiroAction(transcriptTail:#"{"kind":"Prompt","data":{}}"#)==nil)
     precondition(shellAction("/usr/bin/sed -n 1,5p x")=="read" && shellAction("swift build")=="brew" && shellAction("")=="brew")
+    var live=[Agent(id:"a",name:"claude",status:"working",project:"p",activity:"x",cwd:"~"),Agent(id:"b",name:"codex",status:"idle",project:"p",activity:"y",cwd:"~")]
+    precondition(applyHerdrEvent(["event":"pane.agent_status_changed","data":["pane_id":"b","workspace_id":"w","agent_status":"blocked"]],to:&live,names:[:]) == .changed && live.map(\.id)==["b","a"] && live[0].status=="blocked")
+    precondition(applyHerdrEvent(["event":"pane_agent_status_changed","data":["pane_id":"b","agent_status":"blocked"]],to:&live,names:[:]) == .none)
+    precondition(applyHerdrEvent(["event":"pane.agent_status_changed","data":["pane_id":"zz","agent_status":"idle"]],to:&live,names:[:]) == .resync)
+    precondition(applyHerdrEvent(["event":"pane_updated","data":["pane":["pane_id":"a","agent":"claude","agent_status":"done","workspace_id":"w","terminal_title_stripped":"Nuevo"]]],to:&live,names:["w":"Web"]) == .changed && live.first{$0.id=="a"}?.activity=="Nuevo" && live.first{$0.id=="a"}?.project=="Web")
+    precondition(applyHerdrEvent(["event":"pane_updated","data":["pane":["pane_id":"a","agent_status":"idle"]]],to:&live,names:[:]) == .changed && live.map(\.id)==["b"])
+    precondition(applyHerdrEvent(["event":"pane_created","data":["pane":["pane_id":"n","agent":"kiro"]]],to:&live,names:[:]) == .resync)
+    precondition(applyHerdrEvent(["event":"pane_closed","data":["pane_id":"b"]],to:&live,names:[:]) == .changed && live.isEmpty)
+    precondition(applyHerdrEvent(["event":"pane_agent_detected","data":["pane_id":"q"]],to:&live,names:[:]) == .resync && applyHerdrEvent(["event":"pane_focused","data":[:]],to:&live,names:[:]) == .none)
+    let subs=herdrSubscriptions(panes:["w2:p1","w1:p1"]);precondition(subs.last?["pane_id"] as? String=="w2:p1" && subs.contains{$0["type"] as? String=="pane.closed"})
     var fired=false;let item=ClosureMenuItem(title:"x"){fired=true};_=(item.target as AnyObject).perform(item.action,with:item);precondition(fired,"Context menu item did not fire")
-    print("PASS: snapshot states, filtering, empty/error handling, monitor transitions, room art, heroes, subagent sessions, agent creation, codex + kiro actions, subagents keep agents busy, tool actions, translations, git branch, sound alerts + prefs, notifications + prefs, chat selection, question options, filters and search, connection notes, flex-wrap columns, sessions, agent creation, codex + kiro actions, context menu, question extraction, \(files.count) bundled sprites")
+    print("PASS: snapshot states, filtering, empty/error handling, monitor transitions, room art, heroes, subagent sessions, agent creation, codex + kiro actions, herdr events, subagents keep agents busy, tool actions, translations, git branch, sound alerts + prefs, notifications + prefs, chat selection, question options, filters and search, connection notes, flex-wrap columns, sessions, agent creation, codex + kiro actions, herdr events, context menu, question extraction, \(files.count) bundled sprites")
 }
 
 if CommandLine.arguments.contains("--self-test") {

@@ -69,7 +69,7 @@ Each harness has its own classic hero, coloured after the tool's brand (no logos
 
 **Subagents.** Herdr does not report subagents, so for Claude Code agents the app reads the transcripts Claude Code writes under `~/.claude/projects/<project>/<session>/subagents/`. It matches them by the session ID in Herdr's snapshot. A subagent counts as active while its transcript changed in the last 30 seconds. Active subagents appear as small heroes of the same harness, with a count in the room's title. Each one goes to the station of the last tool in its own transcript (reading at the shelf, brewing at the alchemy table, forging at the anvil, typing beside the lead hero…) and walks to a new one when it changes tool. Other harnesses show no subagents.
 
-- Background Herdr queries every second, no overlapping reads, four-second timeout.
+- Event-driven: the app keeps one connection to Herdr's socket subscribed to its events (`events.subscribe`: each agent pane's status, panes appearing, changing or closing, workspaces renamed or closed), so a change shows up the moment it happens. `herdr api snapshot` runs only to bootstrap, after a structural change, once a minute to reconcile, and — if the event connection drops — every second as before while it reconnects. Local enrichment (branch, jobs, subagents, tools) is read from files each second without starting processes.
 - Native SpriteKit animations and crisp nearest-neighbor sprites: the hero types, hammers, jumps on the rug when it needs you, celebrates or sleeps depending on the room.
 - Search, state filters, agent selection, project, pane, directory and terminal title.
 - Latest status change and per-state counts; the menu bar shows only the helm icon, with the number of agents needing attention in its tooltip.
