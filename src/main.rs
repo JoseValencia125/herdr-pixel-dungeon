@@ -40,6 +40,27 @@ const SCREEN_TOP: f32 = 25.0;
 #[cfg(not(target_os = "macos"))]
 const SCREEN_TOP: f32 = 0.0;
 
+/// The part of the screen a window may cover: on macOS below the menu bar
+/// and beside the Dock (asked of AppKit, since the menu bar is taller on
+/// notched displays); elsewhere the whole screen.
+#[cfg(target_os = "macos")]
+fn work_area(screen: Vec2) -> Rect {
+    use objc2_app_kit::NSScreen;
+    use objc2_foundation::MainThreadMarker;
+    let fallback = Rect::from_min_size(egui::pos2(0.0, SCREEN_TOP), vec2(screen.x, screen.y - SCREEN_TOP));
+    let Some(mtm) = MainThreadMarker::new() else { return fallback };
+    let Some(main) = NSScreen::mainScreen(mtm) else { return fallback };
+    let (frame, visible) = (main.frame(), main.visibleFrame());
+    // AppKit's origin is the bottom-left corner; the window's is the top-left.
+    let top = frame.size.height - (visible.origin.y + visible.size.height);
+    Rect::from_min_size(egui::pos2((visible.origin.x - frame.origin.x) as f32, top as f32), vec2(visible.size.width as f32, visible.size.height as f32))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn work_area(screen: Vec2) -> Rect {
+    Rect::from_min_size(egui::pos2(0.0, SCREEN_TOP), screen)
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.iter().any(|a| a == "--self-test") {
@@ -132,6 +153,8 @@ struct App {
     /// When full screen was last toggled: the window is animating, so its
     /// size is neither tracked nor fitted until it settles.
     fullscreen_at: Option<Instant>,
+    /// Where the widget was before going full screen, to come back to.
+    widget_rect: Option<Rect>,
 }
 
 /// The console's narrowest width in full screen; the rooms get whole
@@ -191,6 +214,7 @@ impl App {
             opened_herdr: false,
             fullscreen: false,
             fullscreen_at: None,
+            widget_rect: None,
         };
         ui::set_text_scale(app.prefs.text_scale);
         app.monitor.refresh();
@@ -353,8 +377,27 @@ impl App {
         self.resize_start = None;
         self.size_changed_at = None;
         self.grip = false;
-        ctx.send_viewport_cmd(ViewportCommand::Fullscreen(on));
-        if on { self.show(ctx); }
+        // Not the platform's full screen: macOS refuses it for a borderless,
+        // always-on-top window of a menu-bar app (and winit gives it a title
+        // bar trying), so the window is moved and sized by hand instead.
+        if on {
+            let (outer, screen) = ctx.input(|i| (i.viewport().outer_rect, i.viewport().monitor_size));
+            self.widget_rect = outer;
+            let area = work_area(screen.unwrap_or(vec2(1440.0, 900.0)));
+            self.place(ctx, area);
+            self.show(ctx);
+        } else if let Some(rect) = self.widget_rect.take() {
+            self.place(ctx, rect);
+        } else {
+            self.restore_position(ctx);
+        }
+    }
+
+    fn place(&mut self, ctx: &egui::Context, rect: Rect) {
+        ctx.send_viewport_cmd(ViewportCommand::OuterPosition(rect.min));
+        ctx.send_viewport_cmd(ViewportCommand::InnerSize(rect.size()));
+        self.expected = Some(rect.size());
+        self.commanded_at = Some(Instant::now());
     }
 
     /// Once the window has settled after a toggle, the widget's size is
