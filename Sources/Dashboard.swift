@@ -42,7 +42,7 @@ struct Dashboard: View {
                 NSApp.activate(ignoringOtherApps: true)
                 let alert = NSAlert()
                 alert.messageText = tr("¿Finalizar %@?", agent.project)
-                alert.informativeText = tr("Se enviará ctrl+x a su panel en Herdr.")
+                alert.informativeText = tr("Se escribirá /exit en su chat de Herdr.")
                 alert.alertStyle = .warning
                 // Return cancels: ending an agent needs an explicit click.
                 let finish = alert.addButton(withTitle: tr("Finalizar"))
@@ -50,7 +50,7 @@ struct Dashboard: View {
                 finish.hasDestructiveAction = true
                 alert.addButton(withTitle: tr("Cancelar")).keyEquivalent = "\r"
                 guard alert.runModal() == .alertFirstButtonReturn else { return }
-                monitor.press(["ctrl+x"], on: agent) { failure in if failure != nil { NSSound.beep() } }
+                monitor.finish(agent) { failure in if failure != nil { NSSound.beep() } }
             }
             world.scene.sync(monitor.agents);world.scene.reducedMotion=paused;world.scene.selected=monitor.selected
         }

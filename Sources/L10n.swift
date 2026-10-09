@@ -45,9 +45,9 @@ enum L10n {
              "Criado por Nacho Valencia.\nCódigo e pixel art originais · MIT."],
         // Sounds and chat
         "↑↓ y ⏎ eligen · o responde a %@…": ["↑↓ and ⏎ choose · or reply to %@…", "↑↓ et ⏎ choisissent · ou réponds à %@…", "↑↓ e ⏎ scelgono · o rispondi a %@…", "↑↓ e ⏎ escolhem · ou responda a %@…"],
-        "Finalizar agente (ctrl+x)": ["End agent (ctrl+x)", "Terminer l’agent (ctrl+x)", "Termina l’agente (ctrl+x)", "Encerrar agente (ctrl+x)"],
+        "Finalizar agente (/exit)": ["End agent (/exit)", "Terminer l’agent (/exit)", "Termina l’agente (/exit)", "Encerrar agente (/exit)"],
         "¿Finalizar %@?": ["End %@?", "Terminer %@ ?", "Terminare %@?", "Encerrar %@?"],
-        "Se enviará ctrl+x a su panel en Herdr.": ["ctrl+x will be sent to its pane in Herdr.", "ctrl+x sera envoyé à son panneau dans Herdr.", "ctrl+x verrà inviato al suo pannello in Herdr.", "ctrl+x será enviado ao painel dele no Herdr."],
+        "Se escribirá /exit en su chat de Herdr.": ["/exit will be typed into its chat in Herdr.", "/exit sera tapé dans son chat dans Herdr.", "/exit verrà scritto nella sua chat in Herdr.", "/exit será digitado no chat dele no Herdr."],
         "Finalizar": ["End", "Terminer", "Termina", "Encerrar"],
         "Cancelar": ["Cancel", "Annuler", "Annulla", "Cancelar"],
         "Herdr rechazó la acción. Revisa el panel del agente.": ["Herdr refused the action. Check the agent’s pane.", "Herdr a refusé l’action. Vérifie le panneau de l’agent.", "Herdr ha rifiutato l’azione. Controlla il pannello dell’agente.", "O Herdr recusou a ação. Verifique o painel do agente."],

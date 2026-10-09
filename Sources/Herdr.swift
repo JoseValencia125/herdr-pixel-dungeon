@@ -289,6 +289,18 @@ extension Monitor {
         act(["agent", "send-keys", agent.id] + keys, done: done)
     }
 
+    /// End the agent's session by typing /exit in its chat. A working or
+    /// asking agent first gets esc, and a pause so the terminal does not read
+    /// esc + "/" as Alt+/.
+    func finish(_ agent: Agent, done: @escaping (String?) -> Void) {
+        let exit = { self.act(["pane", "send-text", agent.id, "/exit"], ["pane", "send-keys", agent.id, "enter"], done: done) }
+        guard agent.status == "working" || agent.status == "blocked" else { return exit() }
+        act(["agent", "send-keys", agent.id, "esc"]) { failure in
+            if let failure = failure { return done(failure) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: exit)
+        }
+    }
+
     /// Bring the agent's pane to the front inside Herdr.
     func focus(_ agent: Agent, done: @escaping (String?) -> Void) {
         act(["agent", "focus", agent.id], done: done)

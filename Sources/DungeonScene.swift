@@ -899,7 +899,7 @@ final class DungeonScene: SKScene {
     private let emptyLabel = SKLabelNode(fontNamed: "Menlo-Bold")
 
     var onSelect: ((String) -> Void)?
-    /// Right click → "end agent": the dashboard confirms and sends ctrl+x.
+    /// Right click → "end agent": the dashboard confirms and types /exit.
     var onFinish: ((String) -> Void)?
     var selected: String? {
         didSet { for (id, row) in rows { row.isSelected = (id == selected) } }
@@ -1277,7 +1277,7 @@ final class DungeonScene: SKScene {
     override func rightMouseDown(with event: NSEvent) {
         guard let id = rowID(at: event), let view = view else { return }
         let menu = NSMenu()
-        menu.addItem(ClosureMenuItem(title: tr("Finalizar agente (ctrl+x)")) { [weak self] in self?.onFinish?(id) })
+        menu.addItem(ClosureMenuItem(title: tr("Finalizar agente (/exit)")) { [weak self] in self?.onFinish?(id) })
         NSMenu.popUpContextMenu(menu, with: event, for: view)
     }
 }
