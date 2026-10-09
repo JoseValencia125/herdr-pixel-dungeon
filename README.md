@@ -27,7 +27,7 @@ open "$HOME/Applications/Herdr Pixel Dungeon.app"
 
 Uses only Apple frameworks; no third-party packages. The build produces a locally ad-hoc-signed app for your Mac's architecture. It is not Developer ID signed or notarized.
 
-Close the window to keep monitoring from the menu bar, where a pixel sword marks the app. Use its menu to reopen the window, set sounds or quit. Enable **Demo** to try fictional agents without Herdr. Live mode never inserts fictional agents.
+Close the window to keep monitoring from the menu bar, where a pixel knight's helm marks the app. Use its menu to reopen the window, set sounds or quit. Enable **Demo** to try fictional agents without Herdr. Live mode never inserts fictional agents.
 
 ## States and rooms
 
@@ -47,7 +47,7 @@ Each harness has its own classic hero, coloured after the tool's brand (no logos
 
 **Background sessions.** When a Claude Code pane shows its list of background sessions, Herdr reports the pane as idle, or reflects only the highlighted session, even while other sessions keep working. The app also reads each job's `~/.claude/jobs/<id>/state.json` (state and folder only) and gives a Claude Code pane the most urgent state among the sessions started in its folder during the last hour: one waiting for input makes the room *blocked*, one working makes it *working*.
 
-**Chat and sounds.** Click a room to open a chat panel for that agent: it shows the last lines of its terminal, sends a message (or the answer to a question it is asking), and has buttons to accept or decline a permission prompt, interrupt the agent, or focus its pane in Herdr. A short chiptune plays when an agent needs help and another when it finishes. Turn either off, or mute everything, from the widget or the menu bar.
+**Chat and sounds.** Click a room to open a chat panel for that agent: it shows the last lines of its terminal, sends a message (or the answer to a question it is asking), and has buttons to accept or decline a permission prompt, interrupt the agent, or focus its pane in Herdr. While the agent is asking something, ↑ and ↓ move its highlighted option and ⏎ (with nothing typed) picks it, just like in its terminal. Right-click a room and choose **End agent** to send it ctrl+x after a confirmation (Return cancels; ending needs a click). A short chiptune plays when an agent needs help and another when it finishes. Turn either off, or mute everything, from the widget or the menu bar.
 
 **Subagents.** Herdr does not report subagents, so for Claude Code agents the app reads the transcripts Claude Code writes under `~/.claude/projects/<project>/<session>/subagents/`. It matches them by the session ID in Herdr's snapshot. A subagent counts as active while its transcript changed in the last 30 seconds. Active subagents appear as a small party of heroes under the agent, with a count. Other harnesses show no subagents.
 

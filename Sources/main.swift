@@ -1,26 +1,25 @@
 import Cocoa
 import SwiftUI
 
-/// Menu bar icon: a pixel sword, drawn one square per pixel as a template
-/// image so macOS tints it for light and dark bars.
+/// Menu bar icon: a pixel knight's great helm (T visor, breathing holes,
+/// gorget), drawn one square per pixel as a template image so macOS tints
+/// it for light and dark bars.
 func menuBarIcon() -> NSImage {
     let rows = [
-        "..............##",
-        ".............###",
-        "............###.",
-        "...........###..",
-        "..........###...",
-        ".........###....",
-        "........###.....",
-        "..##...###......",
-        "..###.###.......",
-        "...#####........",
-        "....###.........",
-        "...#####........",
-        "..###.###.......",
-        ".###...##.......",
-        "###.............",
-        "##..............",
+        "......####......",
+        "....########....",
+        "...##########...",
+        "..############..",
+        "..############..",
+        "..##........##..",
+        "..#####..#####..",
+        "..#####..#####..",
+        "..############..",
+        "..##.#.##.#.##..",
+        "..############..",
+        "...##########...",
+        "..############..",
+        ".##############.",
     ]
     let image = NSImage(size: NSSize(width: 16, height: rows.count), flipped: true) { _ in
         NSColor.black.setFill()
@@ -229,7 +228,8 @@ func selfTest() throws {
     sounds.onFinished=false;precondition(SoundAlerts(defaults:prefs).wants(.needsHelp) && !SoundAlerts(defaults:prefs).wants(.finished))
     sounds.enabled=false;precondition(!SoundAlerts(defaults:prefs).wants(.needsHelp));prefs.removePersistentDomain(forName:"hpd-selftest")
     precondition(SoundAlerts.jingle([(440,0.1)]) != nil,"Jingle did not decode")
-    print("PASS: snapshot states, filtering, empty/error handling, monitor transitions, room art, heroes, subagent sessions, subagents keep agents busy, tool actions, translations, git branch, sound alerts + prefs, chat selection, \(files.count) bundled sprites")
+    var fired=false;let item=ClosureMenuItem(title:"x"){fired=true};_=(item.target as AnyObject).perform(item.action,with:item);precondition(fired,"Context menu item did not fire")
+    print("PASS: snapshot states, filtering, empty/error handling, monitor transitions, room art, heroes, subagent sessions, subagents keep agents busy, tool actions, translations, git branch, sound alerts + prefs, chat selection, context menu, \(files.count) bundled sprites")
 }
 
 if CommandLine.arguments.contains("--self-test") {

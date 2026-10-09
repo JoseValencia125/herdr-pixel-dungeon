@@ -799,12 +799,13 @@ final class AgentRow: SKNode {
         let glow = SKSpriteNode(color: NSColor(red: 1, green: 0.55, blue: 0.2, alpha: 1), size: f.size)
         glow.position = CGPoint(x: f.midX, y: f.midY)
         glow.blendMode = .add
-        glow.alpha = 0.05
+        glow.alpha = 0.03
         glow.zPosition = -1
         fx.addChild(glow)
+        // Soft and slow, like embers settling, not a flicker.
         glow.run(.repeatForever(.sequence([.run {
-            glow.run(.fadeAlpha(to: .random(in: 0.03...0.09), duration: .random(in: 0.12...0.35)))
-        }, .wait(forDuration: 0.3, withRange: 0.25)])))
+            glow.run(.fadeAlpha(to: .random(in: 0.02...0.045), duration: .random(in: 0.9...1.6)))
+        }, .wait(forDuration: 1.4, withRange: 0.6)])))
         let hearth = roomPoint(CGPoint(x: 70, y: 22))
         let flameColors = [NSColor(red: 0.996, green: 0.906, blue: 0.38, alpha: 1), NSColor(red: 0.969, green: 0.463, blue: 0.133, alpha: 1)]
         fx.run(.repeatForever(.sequence([.run { [weak self] in
@@ -889,6 +890,8 @@ final class DungeonScene: SKScene {
     private let emptyLabel = SKLabelNode(fontNamed: "Menlo-Bold")
 
     var onSelect: ((String) -> Void)?
+    /// Right click → "end agent": the dashboard confirms and sends ctrl+x.
+    var onFinish: ((String) -> Void)?
     var selected: String? {
         didSet { for (id, row) in rows { row.isSelected = (id == selected) } }
     }
@@ -1229,18 +1232,37 @@ final class DungeonScene: SKScene {
         layout()
     }
 
-    override func mouseDown(with event: NSEvent) {
+    /// The agent whose room is under the pointer, if any.
+    private func rowID(at event: NSEvent) -> String? {
         let point = event.location(in: self)
-        for id in order {
-            guard let row = rows[id] else { continue }
-            let rect = CGRect(x: row.position.x - AgentRow.width / 2,
-                              y: row.position.y - AgentRow.height / 2,
-                              width: AgentRow.width,
-                              height: AgentRow.height)
-            if rect.contains(point) {
-                onSelect?(id)
-                return
-            }
+        return order.first { id in
+            guard let row = rows[id] else { return false }
+            return CGRect(x: row.position.x - AgentRow.width / 2, y: row.position.y - AgentRow.height / 2,
+                          width: AgentRow.width, height: AgentRow.height).contains(point)
         }
     }
+
+    override func mouseDown(with event: NSEvent) {
+        if let id = rowID(at: event) { onSelect?(id) }
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        guard let id = rowID(at: event), let view = view else { return }
+        let menu = NSMenu()
+        menu.addItem(ClosureMenuItem(title: tr("Finalizar agente (ctrl+x)")) { [weak self] in self?.onFinish?(id) })
+        NSMenu.popUpContextMenu(menu, with: event, for: view)
+    }
+}
+
+/// A menu item that runs a closure, so a scene can build menus without a
+/// dedicated target object.
+final class ClosureMenuItem: NSMenuItem {
+    private let handler: () -> Void
+    init(title: String, handler: @escaping () -> Void) {
+        self.handler = handler
+        super.init(title: title, action: #selector(fire), keyEquivalent: "")
+        target = self
+    }
+    required init(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+    @objc private func fire() { handler() }
 }

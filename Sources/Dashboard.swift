@@ -37,6 +37,21 @@ struct Dashboard: View {
         .onAppear {
             // Clicking a room opens its chat panel; clicking it again closes it.
             world.scene.onSelect={id in monitor.selected = monitor.selected == id ? nil : id}
+            world.scene.onFinish={id in
+                guard let agent = monitor.agents.first(where: { $0.id == id }) else { return }
+                NSApp.activate(ignoringOtherApps: true)
+                let alert = NSAlert()
+                alert.messageText = tr("¿Finalizar %@?", agent.project)
+                alert.informativeText = tr("Se enviará ctrl+x a su panel en Herdr.")
+                alert.alertStyle = .warning
+                // Return cancels: ending an agent needs an explicit click.
+                let finish = alert.addButton(withTitle: tr("Finalizar"))
+                finish.keyEquivalent = ""
+                finish.hasDestructiveAction = true
+                alert.addButton(withTitle: tr("Cancelar")).keyEquivalent = "\r"
+                guard alert.runModal() == .alertFirstButtonReturn else { return }
+                monitor.press(["ctrl+x"], on: agent) { failure in if failure != nil { NSSound.beep() } }
+            }
             world.scene.sync(monitor.agents);world.scene.reducedMotion=paused;world.scene.selected=monitor.selected
         }
         .onChange(of:monitor.agents) { world.scene.sync($0) }
@@ -81,6 +96,8 @@ struct ChatPanel: View {
     @State private var lines: [String] = []
     @State private var note: String?
     @State private var sending = false
+    @State private var keys: Any?
+    @StateObject private var route = KeyRoute()
     @FocusState private var typing: Bool
 
     var body: some View {
@@ -108,7 +125,7 @@ struct ChatPanel: View {
             .padding(6)
             .background(Color.black.opacity(0.45),in:RoundedRectangle(cornerRadius:5))
             HStack(spacing:6) {
-                TextField(agent.status == "blocked" ? tr("Responder a %@…", agent.name) : tr("Escribir a %@…", agent.name),text:$draft)
+                TextField(agent.status == "blocked" ? tr("↑↓ y ⏎ eligen · o responde a %@…", agent.name) : tr("Escribir a %@…", agent.name),text:$draft)
                     .textFieldStyle(.roundedBorder)
                     .font(.system(size:12))
                     .focused($typing)
@@ -136,7 +153,10 @@ struct ChatPanel: View {
         .frame(height:ChatPanel.height)
         .background(Color(red:0.09,green:0.08,blue:0.11))
         .overlay(Rectangle().fill(agent.color.opacity(0.7)).frame(height:1),alignment:.top)
-        .onAppear { typing = true }
+        .onAppear { typing = true; route.agent = agent; installKeys() }
+        .onDisappear { if let keys = keys { NSEvent.removeMonitor(keys) }; keys = nil }
+        .onChange(of:agent) { route.agent = $0 }
+        .onChange(of:draft) { route.draftEmpty = $0.trimmingCharacters(in:.whitespaces).isEmpty }
         // Keep the terminal tail fresh while the panel is open.
         .task(id:agent.status) {
             while !Task.isCancelled {
@@ -144,6 +164,27 @@ struct ChatPanel: View {
                 try? await Task.sleep(nanoseconds:2_000_000_000)
             }
         }
+    }
+
+    /// While the agent is asking something, ↑/↓ move its highlighted option
+    /// and ⏎ (with nothing typed) picks it, as in its own terminal.
+    private func installKeys() {
+        guard keys == nil else { return }
+        let route = route, monitor = monitor
+        keys = NSEvent.addLocalMonitorForEvents(matching:.keyDown) { event in
+            guard let agent = route.agent, agent.status == "blocked",
+                  event.modifierFlags.intersection([.command,.option,.control]).isEmpty else { return event }
+            let key: String
+            switch event.keyCode {
+            case 126: key = "up"
+            case 125: key = "down"
+            case 36 where route.draftEmpty, 76 where route.draftEmpty: key = "enter"
+            default: return event
+            }
+            monitor.press([key],on:agent) { _ in monitor.tail(of:agent) { route.lines?($0) } }
+            return nil
+        }
+        route.lines = { lines = $0 }
     }
 
     private func submit() {
@@ -191,4 +232,12 @@ private struct WindowDragArea: NSViewRepresentable {
     }
     func makeNSView(context: Context) -> NSView { DragView() }
     func updateNSView(_ nsView: NSView, context: Context) {}
+}
+
+/// Shared state the panel's key monitor reads: the closure outlives the view
+/// value, so it cannot read the view's @State directly.
+final class KeyRoute: ObservableObject {
+    var agent: Agent?
+    var draftEmpty = true
+    var lines: (([String]) -> Void)?
 }
