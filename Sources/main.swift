@@ -62,7 +62,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Status bar item. Left click toggles the widget; right click shows a menu.
         status = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         status.button?.image = menuBarIcon()
-        status.button?.imagePosition = .imageLeading
+        status.button?.imagePosition = .imageOnly
         status.button?.target = self
         status.button?.action = #selector(statusClicked(_:))
         status.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
@@ -70,7 +70,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         monitor.onChange = { [weak self] in
             guard let self = self else { return }
             let count = self.monitor.agents.filter { $0.status == "blocked" }.count
-            self.status.button?.title = self.monitor.error == nil ? " \(self.monitor.agents.count)" + (count > 0 ? " · \(count)!" : "") : " —"
             self.status.button?.toolTip = tr("Herdr Pixel Dungeon · %ld necesitan atención", count)
             self.fitSize()
             // Typing in the chat panel needs the widget to be the key window.
