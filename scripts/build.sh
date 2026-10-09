@@ -2,6 +2,7 @@
 set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 APP_DIR="$PROJECT_DIR/build/Herdr Pixel Dungeon.app"
+rm -rf "$APP_DIR/Contents/Resources"   # start clean so removed assets never linger
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 xcrun swiftc -swift-version 5 -O -target "$(uname -m)-apple-macosx13.0" \
   "$PROJECT_DIR"/Sources/*.swift -o "$APP_DIR/Contents/MacOS/HerdrPixelDungeon" \

@@ -1,6 +1,37 @@
 import Cocoa
 import SwiftUI
 
+/// Menu bar icon: a pixel knight helmet with a plume, drawn one square per
+/// pixel as a template image so macOS tints it for light and dark bars.
+func menuBarIcon() -> NSImage {
+    let rows = [
+        "..........###...",
+        "........#####...",
+        ".......####.....",
+        "....#######.....",
+        "...##########...",
+        "..############..",
+        "..############..",
+        "..##........##..",
+        "..#####..#####..",
+        "..#####..#####..",
+        "..#####..#####..",
+        "..############..",
+        "...##########...",
+        "....########....",
+    ]
+    let image = NSImage(size: NSSize(width: 16, height: rows.count), flipped: true) { _ in
+        NSColor.black.setFill()
+        for (y, row) in rows.enumerated() {
+            for (x, pixel) in row.enumerated() where pixel == "#" { NSRect(x: x, y: y, width: 1, height: 1).fill() }
+        }
+        return true
+    }
+    image.isTemplate = true
+    image.accessibilityDescription = "Herdr Pixel Dungeon"
+    return image
+}
+
 /// Borderless square panel that can still host SwiftUI/SpriteKit and accept clicks.
 final class WidgetPanel: NSPanel {
     override var canBecomeKey: Bool { true }
@@ -9,6 +40,7 @@ final class WidgetPanel: NSPanel {
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     let monitor = Monitor()
+    let sounds = SoundAlerts()
     var window: WidgetPanel!
     var status: NSStatusItem!
 
@@ -26,7 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         // Status bar item. Left click toggles the widget; right click shows a menu.
         status = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        status.button?.image = NSImage(systemSymbolName: "square.stack.3d.up", accessibilityDescription: "Herdr Pixel Dungeon")
+        status.button?.image = menuBarIcon()
         status.button?.imagePosition = .imageLeading
         status.button?.target = self
         status.button?.action = #selector(statusClicked(_:))
@@ -36,9 +68,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             guard let self = self else { return }
             let count = self.monitor.agents.filter { $0.status == "blocked" }.count
             self.status.button?.title = self.monitor.error == nil ? " \(self.monitor.agents.count)" + (count > 0 ? " · \(count)!" : "") : " —"
-            self.status.button?.toolTip = "Herdr Pixel Dungeon · \(count) necesitan atención"
+            self.status.button?.toolTip = tr("Herdr Pixel Dungeon · %ld necesitan atención", count)
             self.fitHeight()
+            // Typing in the chat panel needs the widget to be the key window.
+            if self.monitor.selected != nil { self.window.makeKey() }
         }
+        monitor.onAlert = { [weak self] in self?.sounds.play($0) }
 
         // Square, borderless, floating widget window.
         window = WidgetPanel(contentRect: NSRect(x: 0, y: 0, width: side, height: side),
@@ -51,7 +86,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.backgroundColor = .clear
         window.isMovableByWindowBackground = true
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        window.contentView = NSHostingView(rootView: Dashboard(monitor: monitor,
+        window.contentView = NSHostingView(rootView: Dashboard(monitor: monitor, sounds: sounds,
                                                                onMinimize: { [weak self] in self?.window.orderOut(nil) },
                                                                onClose: { NSApp.terminate(nil) }))
         window.delegate = self
@@ -71,7 +106,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     /// Height that shows every agent row (at least one), capped to the screen.
     func targetHeight() -> CGFloat {
         let rows = CGFloat(max(1, (monitor.agents.count + DungeonScene.columns - 1) / DungeonScene.columns))
-        let wanted = topInset + rows * AgentRow.height + (rows - 1) * DungeonScene.gap + bottomInset
+        let panel = monitor.selected == nil ? 0 : ChatPanel.height
+        let wanted = topInset + rows * AgentRow.height + (rows - 1) * DungeonScene.gap + bottomInset + panel
         let limit = (window.screen ?? NSScreen.main)?.visibleFrame.height ?? wanted
         return min(wanted, limit - 2 * margin)
     }
@@ -109,11 +145,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func showMenu() {
         let menu = NSMenu()
-        menu.addItem(withTitle: "Mostrar / ocultar", action: #selector(toggle), keyEquivalent: "").target = self
-        menu.addItem(withTitle: "Reposicionar en la esquina", action: #selector(reanchor), keyEquivalent: "").target = self
+        menu.addItem(withTitle: tr("Mostrar / ocultar"), action: #selector(toggle), keyEquivalent: "").target = self
+        menu.addItem(withTitle: tr("Reposicionar en la esquina"), action: #selector(reanchor), keyEquivalent: "").target = self
         menu.addItem(.separator())
-        menu.addItem(withTitle: "Acerca de Herdr Pixel Dungeon", action: #selector(about), keyEquivalent: "").target = self
-        menu.addItem(withTitle: "Salir", action: #selector(quit), keyEquivalent: "q").target = self
+        let soundMenu = NSMenu()
+        for (title, action, on) in [(tr("Sonidos activados"), #selector(toggleSound), sounds.enabled),
+                                    (tr("Al necesitar ayuda"), #selector(toggleNeedsHelpSound), sounds.onNeedsHelp),
+                                    (tr("Al terminar"), #selector(toggleFinishedSound), sounds.onFinished)] {
+            let item = soundMenu.addItem(withTitle: title, action: action, keyEquivalent: "")
+            item.target = self
+            item.state = on ? .on : .off
+            if action != #selector(toggleSound) { item.indentationLevel = 1; item.isEnabled = sounds.enabled }
+        }
+        soundMenu.autoenablesItems = false
+        let soundItem = menu.addItem(withTitle: tr("Sonidos"), action: nil, keyEquivalent: "")
+        soundItem.submenu = soundMenu
+        menu.addItem(.separator())
+        menu.addItem(withTitle: tr("Acerca de Herdr Pixel Dungeon"), action: #selector(about), keyEquivalent: "").target = self
+        menu.addItem(withTitle: tr("Salir"), action: #selector(quit), keyEquivalent: "q").target = self
         status.menu = menu
         status.button?.performClick(nil)
         status.menu = nil // detach so left-click keeps toggling
@@ -127,12 +176,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
+    @objc func toggleSound() { sounds.enabled.toggle() }
+    @objc func toggleNeedsHelpSound() { sounds.onNeedsHelp.toggle(); sounds.play(.needsHelp) }
+    @objc func toggleFinishedSound() { sounds.onFinished.toggle(); sounds.play(.finished) }
+
     @objc func reanchor() { anchorToCorner(); window.orderFrontRegardless() }
     @objc func show() { window.orderFrontRegardless() }
     @objc func quit() { NSApp.terminate(nil) }
     @objc func about() {
         NSApp.activate(ignoringOtherApps: true)
-        NSApp.orderFrontStandardAboutPanel(options: [.applicationName: "Herdr Pixel Dungeon", .credits: NSAttributedString(string: "Pixel art: o_lobster · https://o-lobster.itch.io/\nCC BY 4.0 (license included with asset pack).\nBased on Claude Dungeon by thousandsky2024. MIT.")])
+        NSApp.orderFrontStandardAboutPanel(options: [.applicationName: "Herdr Pixel Dungeon", .credits: NSAttributedString(string: tr("Creado por Nacho Valencia.\nCódigo y pixel art originales · MIT."))])
     }
 }
 
@@ -142,14 +195,10 @@ func selfTest() throws {
     precondition(agents.count==2 && agents[0].status=="blocked" && agents[1].project=="Example")
     do {_ = try decodeSnapshot(Data("{}".utf8));fatalError("Invalid snapshot accepted")}catch{}
     let empty=try decodeSnapshot(Data(#"{"result":{"snapshot":{"agents":[]}}}"#.utf8));precondition(empty.isEmpty)
-    let grid=[[true,false,true],[true,false,true],[true,true,true]]
-    let path=bfsPath(grid:grid,from:Tile(x:0,y:0),to:Tile(x:2,y:0));precondition(path.count==6)
-    var last=Tile(x:0,y:0);for p in path{precondition(grid[p.y][p.x]);precondition(abs(last.x-p.x)+abs(last.y-p.y)==1);last=p}
-    precondition(bfsPath(grid:[[true,false,true]],from:Tile(x:0,y:0),to:Tile(x:2,y:0)).isEmpty)
-    let monitor=Monitor();monitor.apply(demoAgents(tick:0));monitor.apply(demoAgents(tick:10));precondition(monitor.events.contains{$0.text.contains("Necesita atención")});monitor.apply([]);precondition(monitor.agents.isEmpty)
+    let monitor=Monitor();monitor.apply(demoAgents(tick:0));monitor.apply(demoAgents(tick:10));precondition(monitor.events.contains{$0.text.contains(tr("Necesita atención"))});monitor.apply([]);precondition(monitor.agents.isEmpty)
     let resource=Bundle.main.resourceURL!.appendingPathComponent("Sprites")
     let files=FileManager.default.enumerator(at:resource,includingPropertiesForKeys:nil)!.allObjects.compactMap{$0 as? URL}.filter{$0.pathExtension=="png"}
-    precondition(files.count>20);for file in files{precondition(NSImage(contentsOf:file) != nil,"Unreadable asset: \(file.lastPathComponent)")}
+    precondition(files.count>=6);for file in files{precondition(NSImage(contentsOf:file) != nil,"Unreadable asset: \(file.lastPathComponent)")}
     let busy=Agent(id:"x",name:"claude",status:"idle",project:"p",activity:"a",cwd:"~").with(subagents:2);precondition(busy.status=="working" && busy.subagents==2)
     precondition(Agent(id:"x",name:"claude",status:"blocked",project:"p",activity:"a",cwd:"~").with(subagents:1).status=="blocked")
     let repo=FileManager.default.temporaryDirectory.appendingPathComponent("hpd-selftest-\(ProcessInfo.processInfo.processIdentifier)")
@@ -161,7 +210,24 @@ func selfTest() throws {
     let withSession=try decodeSnapshot(Data(#"{"result":{"snapshot":{"agents":[{"pane_id":"a","agent":"claude","agent_session":{"kind":"id","value":"s-1"}}]}}}"#.utf8));precondition(withSession[0].session=="s-1" && withSession[0].subagents==0)
     precondition(NSImage(contentsOf:resource.appendingPathComponent("heroes/heroes.png"))?.size==NSSize(width:48,height:CGFloat(Hero.order.count*32)),"Hero sheet layout mismatch")
     for style in RoomStyle.all{precondition(NSImage(contentsOf:resource.appendingPathComponent("rooms/\(style.background).png")) != nil,"Missing room art: \(style.background)")}
-    print("PASS: snapshot states, filtering, empty/error handling, BFS walls, monitor transitions, room art, heroes, subagent sessions, subagents keep agents busy, git branch, \(files.count) bundled sprites")
+    precondition(toolAction("WebSearch")=="read" && toolAction("Edit")=="forge" && toolAction("Bash")=="brew" && toolAction("Task")=="summon" && toolAction("TodoWrite")=="plan" && toolAction("mcp__x")=="type")
+    let tail=#"{"type":"assistant","message":{"content":[{"type":"text","text":"hi"},{"type":"tool_use","name":"Grep","input":{}}]}}"#+"\n"+#"{"type":"user","message":{"content":[{"type":"tool_result"}]}}"#
+    precondition(lastAction(transcriptTail:tail)=="read" && lastAction(transcriptTail:#"{"type":"assistant","message":{"content":[{"type":"text","text":"done"}]}}"#)=="type" && lastAction(transcriptTail:"")==nil)
+    for (spanish, row) in L10n.table { precondition(row.count==4 && row.allSatisfy{!$0.isEmpty}, "Missing translation: \(spanish)")
+        for language in L10n.languages { let t=L10n.text(spanish,language:language); precondition(t.components(separatedBy:"%").count==spanish.components(separatedBy:"%").count, "Format mismatch: \(spanish) [\(language)]") } }
+    precondition(L10n.text("LISTO",language:"fr")=="TERMINÉ" && L10n.text("LISTO",language:"es")=="LISTO")
+    var before=Dictionary(uniqueKeysWithValues:[Agent(id:"a",name:"claude",status:"working",project:"p",activity:"a",cwd:"~")].map{($0.id,$0)})
+    precondition(alertFor(previous:before,next:[Agent(id:"a",name:"claude",status:"idle",project:"p",activity:"a",cwd:"~")]) == .finished)
+    precondition(alertFor(previous:before,next:[Agent(id:"a",name:"claude",status:"blocked",project:"p",activity:"a",cwd:"~"),Agent(id:"b",name:"x",status:"done",project:"p",activity:"a",cwd:"~")]) == .needsHelp)
+    before["a"]=Agent(id:"a",name:"claude",status:"idle",project:"p",activity:"a",cwd:"~");precondition(alertFor(previous:before,next:[Agent(id:"a",name:"claude",status:"idle",project:"p",activity:"a",cwd:"~")]) == nil)
+    var alerts:[AlertKind]=[];let watcher=Monitor();watcher.onAlert={alerts.append($0)};watcher.apply(demoAgents(tick:0));watcher.apply(demoAgents(tick:10));precondition(alerts == [.needsHelp])
+    watcher.selected="demo:1";watcher.apply([]);precondition(watcher.selected == nil)
+    let prefs=UserDefaults(suiteName:"hpd-selftest")!;prefs.removePersistentDomain(forName:"hpd-selftest")
+    let sounds=SoundAlerts(defaults:prefs);precondition(sounds.wants(.needsHelp) && sounds.wants(.finished))
+    sounds.onFinished=false;precondition(SoundAlerts(defaults:prefs).wants(.needsHelp) && !SoundAlerts(defaults:prefs).wants(.finished))
+    sounds.enabled=false;precondition(!SoundAlerts(defaults:prefs).wants(.needsHelp));prefs.removePersistentDomain(forName:"hpd-selftest")
+    precondition(SoundAlerts.jingle([(440,0.1)]) != nil,"Jingle did not decode")
+    print("PASS: snapshot states, filtering, empty/error handling, monitor transitions, room art, heroes, subagent sessions, subagents keep agents busy, tool actions, translations, git branch, sound alerts + prefs, chat selection, \(files.count) bundled sprites")
 }
 
 if CommandLine.arguments.contains("--self-test") {

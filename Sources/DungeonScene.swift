@@ -14,14 +14,22 @@ struct RoomStyle {
     let spot: CGPoint             // hero position in room-art pixels (144x100, origin top-left)
     let roam: CGFloat             // how far the hero wanders left/right of its spot
     let lying: Bool               // asleep in bed
+    var route: [CGPoint] = []     // waypoints from the door to the spot, around furniture
 
     static let all: [RoomStyle] = [
-        RoomStyle(status: "blocked", title: "ATENCIÓN",  background: "room_blocked", color: .systemIndigo, playerKind: "idle", bubble: "?", spot: CGPoint(x: 72, y: 62), roam: 8,  lying: false),
-        RoomStyle(status: "working", title: "TRABAJANDO",background: "room_working", color: .systemOrange, playerKind: "work", bubble: nil, spot: CGPoint(x: 72, y: 34), roam: 0,  lying: false),
-        RoomStyle(status: "idle",    title: "EN ESPERA", background: "room_idle",    color: .systemGreen,  playerKind: "idle", bubble: "z", spot: CGPoint(x: 63, y: 57), roam: 0,  lying: true),
-        RoomStyle(status: "done",    title: "TERMINÓ",   background: "room_done",    color: .systemYellow, playerKind: "work", bubble: nil, spot: CGPoint(x: 72, y: 68), roam: 10, lying: false),
-        RoomStyle(status: "unknown", title: "SIN ESTADO",background: "room_unknown", color: .systemGray,   playerKind: "idle", bubble: "…", spot: CGPoint(x: 72, y: 62), roam: 24, lying: false)
+        RoomStyle(status: "blocked", title: tr("ATENCIÓN"),  background: "room_blocked", color: .systemRed,    playerKind: "work", bubble: nil, spot: CGPoint(x: 72, y: 64), roam: 8,  lying: false),
+        RoomStyle(status: "working", title: tr("TRABAJANDO"),background: "room_working", color: .systemOrange, playerKind: "work", bubble: nil, spot: CGPoint(x: 72, y: 34), roam: 0,  lying: false,
+                  route: [CGPoint(x: 72, y: 80), CGPoint(x: 36, y: 74), CGPoint(x: 36, y: 36)]),
+        RoomStyle(status: "idle",    title: tr("EN ESPERA"), background: "room_idle",    color: .systemGray,   playerKind: "idle", bubble: "z", spot: CGPoint(x: 63, y: 57), roam: 0,  lying: true,
+                  route: [CGPoint(x: 72, y: 80), CGPoint(x: 52, y: 72)]),
+        RoomStyle(status: "done",    title: tr("LISTO"),     background: "room_done",    color: .systemGreen,  playerKind: "work", bubble: nil, spot: CGPoint(x: 72, y: 66), roam: 0,  lying: false),
+        RoomStyle(status: "unknown", title: tr("SIN ESTADO"),background: "room_unknown", color: .systemGray,   playerKind: "idle", bubble: "…", spot: CGPoint(x: 72, y: 62), roam: 24, lying: false)
     ]
+
+    /// The doorway in the bottom wall that every room shares, and a point
+    /// just outside it (clipped away) where the hero leaves and arrives.
+    static let door = CGPoint(x: 72, y: 88)
+    static let outside = CGPoint(x: 72, y: 112)
 
     static func forStatus(_ status: String) -> RoomStyle { all.first { $0.status == status } ?? all[4] }
 }
@@ -50,6 +58,7 @@ final class AgentRow: SKNode {
 
     let agentId: String
     private var layoutWidth: CGFloat = AgentRow.width
+    private var laidOut = false
     private let frameNode = SKShapeNode()
     private let backdrop = SKSpriteNode()
     private let roomCrop = SKCropNode()   // clips the room and its actors to the rounded frame
@@ -69,7 +78,9 @@ final class AgentRow: SKNode {
     private let placePill = SKShapeNode()
     private let footerNode = SKShapeNode()   // solid caption band under the room
     private let blanket = SKSpriteNode()    // the bed's own blanket, drawn over the sleeper
+    private let front = SKSpriteNode()      // the room's "front" layer (the desk), drawn over the hero
     private let confetti = SKNode()         // celebration bits in the done room
+    private let alarm = SKNode()            // the big "!" and waving arms, riding on the hero
     private let fx = SKNode()               // each room's sparks, sparkles, lights and z's
     private let selectionGlow = SKShapeNode()
 
@@ -77,12 +88,15 @@ final class AgentRow: SKNode {
     private(set) var currentStatus = ""
     private var style = RoomStyle.forStatus("unknown")
     private var roomTexture: SKTexture?
+    private var frontTexture: SKTexture?
     private var playerAnimation = ""
     private var harness = Hero.fallback
     private var subagents = -1
     private var activity = ""
     private var place = ""
     private var nameText = ""
+    private var action: String?           // Claude Code tool action while working, nil = cycle through stations
+    private var inTransition = false
 
     init(agent: Agent, scene: DungeonScene) {
         self.agentId = agent.id
@@ -115,6 +129,8 @@ final class AgentRow: SKNode {
         actors.addChild(player)
         blanket.zPosition = 2.5
         actors.addChild(blanket)
+        front.zPosition = 2.5   // over the hero (2) and the helpers behind it, under the helpers in front (3)
+        actors.addChild(front)
         confetti.zPosition = 4
         actors.addChild(confetti)
         fx.zPosition = 4
@@ -182,6 +198,10 @@ final class AgentRow: SKNode {
 
     /// Lay the row out for a given width. Positions are relative to the row center.
     func resize(width: CGFloat) {
+        // Called on every sync; only lay out again when the width really
+        // changes, or the hero's routine and transitions would restart.
+        guard width != layoutWidth || !laidOut else { return }
+        laidOut = true
         layoutWidth = width
         let f = roomFrame
         let cell = CGRect(x: f.minX, y: f.minY - AgentRow.footer, width: f.width, height: f.height + AgentRow.footer)
@@ -205,6 +225,10 @@ final class AgentRow: SKNode {
         activity = agent.activity
         place = agent.folder + (agent.branch.map { " · " + $0 } ?? "")
         harness = Hero.harness(for: agent.name)
+        if agent.action != action {
+            action = agent.action
+            if style.status == "working" && agent.status == "working" && !inTransition { restartWorking() }
+        }
         if agent.status != currentStatus {
             currentStatus = agent.status
             applyRoom(RoomStyle.forStatus(agent.status), animated: animated)
@@ -235,18 +259,83 @@ final class AgentRow: SKNode {
         text.count > chars ? String(text.prefix(max(1, chars - 1))) + "…" : text
     }
 
+    /// A status change: the hero gets up if asleep, walks out through the
+    /// door, the room changes behind it, and it walks back in to its new
+    /// spot (around the desk, to the bed) before starting that room's routine.
     private func applyRoom(_ next: RoomStyle, animated: Bool) {
+        guard animated, actors.speed > 0, roomTexture != nil else { inTransition = false; return swapRoom(next, animated: animated) }
+        inTransition = true
+        for key in ["move", "hop", "breathe", "pose", "frames"] { player.removeAction(forKey: key) }
+        fx.removeAllActions(); fx.removeAllChildren()
+        alarm.removeAllChildren(); alarm.removeFromParent()
+        player.childNode(withName: "book")?.removeFromParent()
+        confetti.removeAllActions()
+        blanket.removeAllActions(); blanket.isHidden = true
+        bubble.isHidden = true
+        party.run(.fadeOut(withDuration: 0.25))
+        walker = artPoint(player.position)
+        if style.lying {   // get out of bed first
+            player.zRotation = 0
+            player.size = CGSize(width: AgentRow.heroSize, height: AgentRow.heroSize)
+            walker = CGPoint(x: 52, y: 70)
+            player.position = roomPoint(walker)
+        }
+        player.yScale = 1
+        var steps: [SKAction] = []
+        for p in style.route.reversed() where style.lying == false || p.y > 71 { steps.append(walkSeq(p, speed: 44)) }
+        steps.append(walkSeq(RoomStyle.door, speed: 44))
+        steps.append(walkSeq(RoomStyle.outside, speed: 44))
+        steps.append(.run { [weak self] in
+            guard let self = self else { return }
+            self.swapRoom(next, animated: true, routine: false)
+            self.player.position = self.roomPoint(RoomStyle.outside)
+        })
+        walker = RoomStyle.outside
+        steps.append(walkSeq(RoomStyle.door, speed: 44))
+        for p in next.route { steps.append(walkSeq(p, speed: 44)) }
+        if !next.lying { steps.append(walkSeq(next.spot, speed: 44)) }
+        steps.append(.run { [weak self] in
+            guard let self = self else { return }
+            self.inTransition = false
+            self.placeActors()
+            self.party.removeAllActions(); self.party.alpha = 1
+        })
+        player.run(.sequence(steps), withKey: "move")
+    }
+
+    /// Room-art pixel of a row-coordinate point (inverse of roomPoint).
+    private func artPoint(_ p: CGPoint) -> CGPoint {
+        let f = roomFrame
+        let scale = max(f.width / AgentRow.art.width, f.height / AgentRow.art.height)
+        return CGPoint(x: AgentRow.art.width - (f.maxX - p.x) / scale, y: AgentRow.art.height / 2 - (p.y - f.midY) / scale)
+    }
+
+    private func swapRoom(_ next: RoomStyle, animated: Bool, routine: Bool = true) {
         style = next
         roomLabel.fontColor = next.color.blended(withFraction: 0.45, of: .white) ?? next.color
         frameNode.strokeColor = next.color.withAlphaComponent(0.85)
+        frameNode.removeAction(forKey: "blink")
+        frameNode.lineWidth = 1
+        if next.status == "blocked" {
+            // Border blinks bright red / dark red.
+            frameNode.lineWidth = 3
+            let bright = NSColor(red: 1, green: 0.2, blue: 0.22, alpha: 1), dim = NSColor(red: 0.35, green: 0.05, blue: 0.08, alpha: 1)
+            frameNode.run(.repeatForever(.sequence([.run { [weak self] in self?.frameNode.strokeColor = bright }, .wait(forDuration: 0.35),
+                                                    .run { [weak self] in self?.frameNode.strokeColor = dim }, .wait(forDuration: 0.35)])), withKey: "blink")
+        }
         roomTexture = host.roomTexture(next.background)
+        frontTexture = host.roomTexture(next.background + "_front")
         layoutBackdrop()
-        playerAnimation = ""
-        setPlayer()
-        placeActors()
+        layoutText()
+        if routine {
+            playerAnimation = ""
+            setPlayer()
+            placeActors()
+        }
         setParty()
+        if !routine { party.alpha = 0 }
         if animated {
-            backdrop.alpha = 0; backdrop.run(.fadeIn(withDuration: 0.35))
+            for node in [backdrop, front] { node.alpha = 0; node.run(.fadeIn(withDuration: 0.35)) }
         }
     }
 
@@ -254,15 +343,18 @@ final class AgentRow: SKNode {
     private func layoutBackdrop() {
         let f = roomFrame
         roomMask.path = CGPath(roundedRect: f, cornerWidth: 6, cornerHeight: 6, transform: nil)
-        backdrop.size = f.size
-        backdrop.position = CGPoint(x: f.midX, y: f.midY)
-        guard let art = roomTexture else { backdrop.texture = nil; return }
-        let size = art.size()
-        let scale = max(f.width / size.width, f.height / size.height)
-        let w = f.width / scale / size.width
-        let ch = f.height / scale / size.height
-        backdrop.texture = SKTexture(rect: CGRect(x: 1 - w, y: (1 - ch) / 2, width: w, height: ch), in: art)
-        backdrop.texture?.filteringMode = .nearest
+        for (node, texture) in [(backdrop, roomTexture), (front, frontTexture)] {
+            node.size = f.size
+            node.position = CGPoint(x: f.midX, y: f.midY)
+            node.isHidden = texture == nil
+            guard let art = texture else { node.texture = nil; continue }
+            let size = art.size()
+            let scale = max(f.width / size.width, f.height / size.height)
+            let w = f.width / scale / size.width
+            let ch = f.height / scale / size.height
+            node.texture = SKTexture(rect: CGRect(x: 1 - w, y: (1 - ch) / 2, width: w, height: ch), in: art)
+            node.texture?.filteringMode = .nearest
+        }
     }
 
     private func setPlayer() {
@@ -296,6 +388,8 @@ final class AgentRow: SKNode {
         blanket.yScale = 1
         fx.removeAllActions()
         fx.removeAllChildren()
+        alarm.removeAllChildren(); alarm.removeFromParent()
+        player.childNode(withName: "book")?.removeFromParent()
         confetti.removeAllActions()
         confetti.removeAllChildren()
         let side = AgentRow.heroSize
@@ -418,46 +512,138 @@ final class AgentRow: SKNode {
     private static let orange = NSColor(red: 0.969, green: 0.463, blue: 0.133, alpha: 1)
     private static let cyan = NSColor(red: 0.173, green: 0.91, blue: 0.961, alpha: 1)
     private static let red = NSColor(red: 0.894, green: 0.231, blue: 0.267, alpha: 1)
+    private static let green = NSColor(red: 0.39, green: 0.78, blue: 0.3, alpha: 1)
     private static let violet = NSColor(red: 0.71, green: 0.31, blue: 0.53, alpha: 1)
 
-    /// Forge: type at the laptop (code flies off the screen), walk to the
-    /// anvil and hammer (sparks), check the crystals (they flare), back to
-    /// the desk. The furnace, torches, screen and gems glint all the time.
+    /// Take a book (it pops into the hero's hands), open it and read,
+    /// flipping pages, then put it back. Works for every hero.
+    private func readBook(for seconds: TimeInterval, scroll: Bool = false) -> SKAction {
+        let closed = scroll ? host.scrollTexture(open: false) : host.bookTexture(open: false)
+        let pages = scroll ? [host.scrollTexture(open: true), host.scrollTexture(open: true, flipped: true)]
+                           : [host.bookTexture(open: true), host.bookTexture(open: true, flipped: true)]
+        return .sequence([pose("idle", pace: 0.6),
+                          .moveBy(x: 0, y: 3, duration: 0.15), .moveBy(x: 0, y: -3, duration: 0.15),   // reach for the shelf
+                          .run { [weak self] in
+                              guard let self = self else { return }
+                              self.player.childNode(withName: "book")?.removeFromParent()
+                              let book = SKSpriteNode(texture: closed)
+                              book.name = "book"
+                              book.size = CGSize(width: 10, height: 10)
+                              book.position = CGPoint(x: 0, y: -5)
+                              book.zPosition = 0.2
+                              self.player.addChild(book)
+                              self.sparkle(at: self.artPoint(CGPoint(x: self.player.position.x, y: self.player.position.y + 26)), color: .white, size: 10)
+                          },
+                          .wait(forDuration: 0.4),
+                          .run { [weak self] in
+                              guard let book = self?.player.childNode(withName: "book") as? SKSpriteNode else { return }
+                              book.size = CGSize(width: 18, height: 12)
+                              book.run(.repeatForever(.animate(with: pages, timePerFrame: 0.9)))
+                          },
+                          .wait(forDuration: seconds),
+                          .moveBy(x: 0, y: 3, duration: 0.15), .moveBy(x: 0, y: -3, duration: 0.15),   // put it back
+                          .run { [weak self] in self?.player.childNode(withName: "book")?.removeFromParent() }])
+    }
+
+    /// Walk to a station, around the desk: going between the top half of
+    /// the room and the bottom half uses the free lane on the left or right.
+    private func go(_ to: CGPoint) -> SKAction {
+        let from = walker
+        guard (from.y < 50) != (to.y < 50) else { return walkSeq(to) }
+        let lane: CGFloat = (from.x + to.x) / 2 < 72 ? 36 : 106
+        return .sequence([walkSeq(CGPoint(x: lane, y: from.y)), walkSeq(CGPoint(x: lane, y: to.y)), walkSeq(to)])
+    }
+
+    /// The working agent's action changed: walk from wherever the hero is
+    /// to the new station.
+    private func restartWorking() {
+        for key in ["move", "pose"] { player.removeAction(forKey: key) }
+        player.childNode(withName: "book")?.removeFromParent()
+        fx.removeAllActions(); fx.removeAllChildren()
+        walker = artPoint(player.position)
+        startWorking()
+    }
+
+    /// Workshop. With a Claude Code action the hero goes to its station and
+    /// keeps at it: reading a book (Read, Grep, web search), forging at the
+    /// anvil (edits), brewing at the alchemy table (shell), summoning in a
+    /// magic circle (subagents), studying a scroll (plans and todos) or
+    /// typing at the laptop (thinking, writing). Without one it makes the
+    /// rounds of every station.
     private func startWorking() {
-        let desk = style.spot, anvil = CGPoint(x: 32, y: 40), gems = CGPoint(x: 108, y: 38), shelf = CGPoint(x: 120, y: 27)
-        var station = "desk"
-        let typing = SKAction.sequence([.run { station = "desk" }, face(1), pose("work", pace: 0.12), .wait(forDuration: 4.5)])
-        let hammer = SKAction.sequence([.run { station = "anvil" }, face(-1), pose("work", pace: 0.16), .wait(forDuration: 3)])
-        let study = SKAction.sequence([.run { station = "gems" }, face(1), pose("work", pace: 0.22), .wait(forDuration: 2.4)])
-        let read = SKAction.sequence([.run { station = "shelf" }, face(1), pose("idle", pace: 0.4), .wait(forDuration: 1.6)])
-        let walking = SKAction.run { station = "walk" }
-        player.run(.repeatForever(.sequence([typing,
-                                             walking, walkSeq(anvil), hammer,
-                                             walking, walkSeq(desk), typing,
-                                             walking, walkSeq(gems), study,
-                                             walking, walkSeq(shelf), read,
-                                             walking, walkSeq(desk)])), withKey: "move")
+        let stations: [String: CGPoint] = ["type": style.spot, "plan": style.spot, "read": CGPoint(x: 53, y: 33),
+                                           "forge": CGPoint(x: 32, y: 40), "brew": CGPoint(x: 114, y: 63),
+                                           "gems": CGPoint(x: 108, y: 38), "summon": CGPoint(x: 72, y: 76)]
+        var station = "type"
+        func at(_ name: String) -> SKAction { .run { station = name } }
+        func activity(_ name: String) -> SKAction {
+            switch name {
+            case "read":   return .sequence([at("read"), face(1), readBook(for: 3.6)])
+            case "plan":   return .sequence([at("plan"), face(1), readBook(for: 3.6, scroll: true)])
+            case "forge":  return .sequence([at("forge"), face(-1), pose("work", pace: 0.16), .wait(forDuration: 3)])
+            case "brew":   return .sequence([at("brew"), face(1), pose("work", pace: 0.2), .wait(forDuration: 3.4)])
+            case "gems":   return .sequence([at("gems"), face(1), pose("work", pace: 0.22), .wait(forDuration: 2)])
+            case "summon": return .sequence([at("summon"), face(1), pose("work", pace: 0.09), .wait(forDuration: 3)])
+            default:       return .sequence([at("type"), face(1), pose("work", pace: 0.12), .wait(forDuration: 4)])
+            }
+        }
+        if let action = action, let target = stations[action] {
+            player.run(.sequence([at("walk"), go(target), .repeatForever(activity(action))]), withKey: "move")
+        } else {
+            var steps: [SKAction] = [at("walk"), go(style.spot), activity("type")]
+            for name in ["read", "forge", "brew", "gems"] { steps += [at("walk"), go(stations[name]!), activity(name)] }
+            steps += [at("walk"), go(style.spot)]
+            // The first lap starts from wherever the hero stands; later laps loop from the desk.
+            var loop: [SKAction] = [activity("type")]
+            walker = style.spot
+            for name in ["read", "forge", "brew", "gems"] { loop += [at("walk"), go(stations[name]!), activity(name)] }
+            loop += [at("walk"), go(style.spot)]
+            player.run(.sequence([.sequence(steps), .repeatForever(.sequence(loop))]), withKey: "move")
+        }
 
         light(at: CGPoint(x: 26, y: 18), radius: 26, color: AgentRow.orange, low: 0.08, high: 0.2)
         light(at: CGPoint(x: 72, y: 47), radius: 16, color: AgentRow.cyan, low: 0.06, high: 0.16)
         light(at: CGPoint(x: 124, y: 40), radius: 14, color: AgentRow.cyan, low: 0.05, high: 0.18, pulse: 1.1)
+        light(at: CGPoint(x: 93, y: 72), radius: 12, color: AgentRow.green, low: 0.06, high: 0.2, pulse: 0.8)
         let laptop = roomPoint(CGPoint(x: 72, y: 46)), anvilTop = roomPoint(CGPoint(x: 20, y: 41))
+        let potions: [NSColor] = [AgentRow.red, AgentRow.green, AgentRow.cyan, AgentRow.violet]
+        var angle: CGFloat = 0
         emit(every: 0.14) { row in
             switch station {
-            case "desk":
-                row.bits(at: CGPoint(x: laptop.x + .random(in: -8...8), y: laptop.y + 4), colors: [AgentRow.cyan, .white, NSColor(red: 0.39, green: 0.78, blue: 0.3, alpha: 1)],
+            case "type":
+                row.bits(at: CGPoint(x: laptop.x + .random(in: -8...8), y: laptop.y + 4), colors: [AgentRow.cyan, .white, AgentRow.green],
                          count: 1, spread: 6, rise: 14...24, size: 2, life: 0.9)
-            case "anvil":
+            case "read", "plan":
+                if Int.random(in: 0..<3) == 0 {
+                    row.bits(at: row.player.position, colors: [.white, AgentRow.gold], count: 1, spread: 8, rise: 8...16, life: 0.8)
+                }
+            case "forge":
                 row.bits(at: anvilTop, colors: [AgentRow.gold, AgentRow.orange, .white], count: 3, spread: 16, rise: 4...16, size: 2, life: 0.45)
+            case "brew":
+                let flask = row.roomPoint(CGPoint(x: [105, 110, 115, 121, 125][Int.random(in: 0..<5)], y: 68))
+                row.bits(at: flask, colors: [potions.randomElement()!], count: 1, spread: 3, rise: 10...20, size: 3, life: 0.9)
+                if Int.random(in: 0..<4) == 0 { row.sparkle(at: CGPoint(x: .random(in: 103...126), y: 66), color: potions.randomElement()!, size: 10) }
             case "gems":
                 row.sparkle(at: CGPoint(x: .random(in: 116...130), y: .random(in: 34...44)), color: AgentRow.cyan, size: 12)
-            case "shelf":
-                row.bits(at: row.roomPoint(CGPoint(x: 125, y: 14)), colors: [AgentRow.gold, AgentRow.violet], count: 1, spread: 8, rise: -10 ... -4, life: 0.8)
+            case "summon":
+                // A ring of violet light turning around the hero's feet, motes rising out of it.
+                for k in 0..<3 {
+                    let t = angle + CGFloat(k) * 2.1
+                    row.sparkle(at: CGPoint(x: 72 + cos(t) * 16, y: 86 + sin(t) * 5), color: AgentRow.violet, size: 9, jitter: 0)
+                }
+                angle += 0.5
+                row.bits(at: row.roomPoint(CGPoint(x: .random(in: 58...86), y: 86)), colors: [AgentRow.violet, .white], count: 1, spread: 2, rise: 14...26, life: 0.9)
             default: break
             }
         }
-        let glints = [CGPoint(x: 55, y: 10), CGPoint(x: 85, y: 10), CGPoint(x: 119, y: 37), CGPoint(x: 129, y: 41),
-                      CGPoint(x: 76, y: 46), CGPoint(x: 117, y: 80), CGPoint(x: 26, y: 16), CGPoint(x: 72, y: 8)]
+        // The cauldron bubbles all the time.
+        let cauldron = roomPoint(CGPoint(x: 93, y: 71))
+        emit(every: 0.3, range: 0.2) { row in
+            row.bits(at: CGPoint(x: cauldron.x + .random(in: -5...5), y: cauldron.y), colors: [AgentRow.green, AgentRow.cyan],
+                     count: 1, spread: 2, rise: 6...12, size: 2, life: 0.7)
+        }
+        let glints = [CGPoint(x: 52, y: 12), CGPoint(x: 88, y: 20), CGPoint(x: 119, y: 37), CGPoint(x: 129, y: 41),
+                      CGPoint(x: 76, y: 46), CGPoint(x: 114, y: 71), CGPoint(x: 26, y: 16), CGPoint(x: 72, y: 8), CGPoint(x: 124, y: 12)]
         emit(every: 0.45, range: 0.3) { row in row.sparkle(at: glints.randomElement()!, color: .white, size: 9) }
         let furnace = roomPoint(CGPoint(x: 26, y: 16))
         emit(every: 0.2, range: 0.15) { row in
@@ -465,62 +651,96 @@ final class AgentRow: SKNode {
         }
     }
 
-    /// Sealed door: pace, march up and rattle it (the seal flares red, "!"),
-    /// back off puzzled ("?"), try the lever, pace again.
+    /// Needs attention: the hero jumps up and down waving both arms under a
+    /// huge pulsing red "!", the room throbs with red light and the cell's
+    /// border blinks red. Now and then it bangs on the sealed door.
     private func startBlocked() {
-        let center = style.spot, door = CGPoint(x: 72, y: 34), lever = CGPoint(x: 108, y: 48)
+        let center = style.spot, door = CGPoint(x: 72, y: 36)
+        alarm.removeAllChildren()
+        player.addChild(alarm)
+        let mark = SKSpriteNode(texture: host.alertTexture())
+        mark.size = CGSize(width: 13.5, height: 25.5)
+        mark.position = CGPoint(x: 0, y: AgentRow.heroSize / 2 + 16)
+        alarm.addChild(mark)
+        mark.run(.repeatForever(.sequence([.scale(to: 1.25, duration: 0.18), .scale(to: 1, duration: 0.22), .wait(forDuration: 0.15)])))
+        mark.run(.repeatForever(.sequence([.rotate(toAngle: 0.12, duration: 0.12), .rotate(toAngle: -0.12, duration: 0.24), .rotate(toAngle: 0, duration: 0.12)])))
+        // Two waving arms, hinged at the shoulders.
+        let armTexture = host.armTexture(harness)
+        for side: CGFloat in [-1, 1] {
+            let arm = SKSpriteNode(texture: armTexture)
+            arm.size = CGSize(width: 6, height: 14)
+            arm.anchorPoint = CGPoint(x: 0.5, y: 0.08)
+            arm.position = CGPoint(x: side * 11, y: -2)
+            arm.zPosition = 0.1
+            alarm.addChild(arm)
+            let up = SKAction.rotate(toAngle: -side * 0.35, duration: 0.14), out = SKAction.rotate(toAngle: -side * 1.25, duration: 0.14)
+            arm.run(.repeatForever(.sequence([up, out])))
+        }
+        let hop = SKAction.sequence([.moveBy(x: 0, y: 12, duration: 0.16), .moveBy(x: 0, y: -12, duration: 0.14), .wait(forDuration: 0.06)])
         let shake = SKAction.sequence([.moveBy(x: 3, y: 0, duration: 0.05), .moveBy(x: -6, y: 0, duration: 0.1), .moveBy(x: 3, y: 0, duration: 0.05)])
         let seal = SKSpriteNode(texture: host.glowTexture())
-        seal.size = CGSize(width: 44, height: 44)
+        seal.size = CGSize(width: 48, height: 48)
         seal.color = AgentRow.red
         seal.colorBlendFactor = 1
         seal.blendMode = .add
-        seal.alpha = 0.12
+        seal.alpha = 0.2
         seal.position = roomPoint(CGPoint(x: 72, y: 15))
         seal.zPosition = -1
         fx.addChild(seal)
-        let flare = SKAction.run { seal.run(.sequence([.fadeAlpha(to: 0.55, duration: 0.08), .fadeAlpha(to: 0.12, duration: 0.6)])) }
-        player.run(.repeatForever(.sequence([
-            say("?"), walkSeq(CGPoint(x: center.x - 14, y: center.y)), .wait(forDuration: 0.6),
-            walkSeq(CGPoint(x: center.x + 14, y: center.y)), .wait(forDuration: 0.6),
-            walkSeq(door), say("!"), pose("work", pace: 0.1),
-            .repeat(.sequence([shake, flare, .run { [weak self] in
-                guard let self = self else { return }
-                self.bits(at: self.roomPoint(CGPoint(x: 72, y: 18)), colors: [AgentRow.red, AgentRow.gold], count: 4, spread: 12, rise: -10...6, life: 0.4)
-            }, .wait(forDuration: 0.35)]), count: 3),
-            say("?"), walkSeq(center), face(-1), .wait(forDuration: 0.5), face(1), .wait(forDuration: 0.5),
-            walkSeq(lever), say("…"), pose("work", pace: 0.2), .wait(forDuration: 1.2), shake, say("?"),
-            walkSeq(center), pose("idle", pace: 0.5), .wait(forDuration: 1.2)])), withKey: "move")
-        seal.run(.repeatForever(.sequence([.fadeAlpha(to: 0.22, duration: 0.9), .fadeAlpha(to: 0.1, duration: 0.9)])))
-        light(at: CGPoint(x: 33, y: 33), radius: 12, color: AgentRow.cyan, low: 0.08, high: 0.22)
-        light(at: CGPoint(x: 109, y: 33), radius: 12, color: AgentRow.cyan, low: 0.08, high: 0.22)
-        emit(every: 0.3, range: 0.2) { row in
-            let brazier = Bool.random() ? CGPoint(x: 33, y: 31) : CGPoint(x: 109, y: 31)
-            row.bits(at: row.roomPoint(brazier), colors: [AgentRow.cyan, .white], count: 1, spread: 3, rise: 6...12, life: 0.8)
+        seal.run(.repeatForever(.sequence([.fadeAlpha(to: 0.5, duration: 0.3), .fadeAlpha(to: 0.15, duration: 0.3)])))
+        let bang = SKAction.run { [weak self] in
+            guard let self = self else { return }
+            self.bits(at: self.roomPoint(CGPoint(x: 72, y: 20)), colors: [AgentRow.red, AgentRow.gold, .white], count: 5, spread: 14, rise: -10...6, life: 0.4)
         }
-        let glints = [CGPoint(x: 52, y: 12), CGPoint(x: 92, y: 12), CGPoint(x: 24, y: 9), CGPoint(x: 120, y: 9), CGPoint(x: 117, y: 43)]
-        emit(every: 0.6, range: 0.4) { row in row.sparkle(at: glints.randomElement()!, color: .white, size: 9) }
+        player.run(.repeatForever(.sequence([
+            face(1), .repeat(hop, count: 6), face(-1), .repeat(hop, count: 6),
+            walkSeq(door, speed: 50), pose("work", pace: 0.08),
+            .repeat(.sequence([shake, bang, .wait(forDuration: 0.25)]), count: 3),
+            walkSeq(center, speed: 50), pose("work", pace: 0.1)])), withKey: "move")
+        // The whole room throbs red.
+        let wash = SKSpriteNode(color: AgentRow.red, size: roomFrame.size)
+        wash.position = CGPoint(x: roomFrame.midX, y: roomFrame.midY)
+        wash.blendMode = .add
+        wash.alpha = 0
+        wash.zPosition = -1
+        fx.addChild(wash)
+        wash.run(.repeatForever(.sequence([.fadeAlpha(to: 0.16, duration: 0.35), .fadeAlpha(to: 0.02, duration: 0.45)])))
+        light(at: CGPoint(x: 33, y: 33), radius: 12, color: AgentRow.orange, low: 0.1, high: 0.28)
+        light(at: CGPoint(x: 109, y: 33), radius: 12, color: AgentRow.orange, low: 0.1, high: 0.28)
+        emit(every: 0.25, range: 0.15) { row in
+            let brazier = Bool.random() ? CGPoint(x: 33, y: 31) : CGPoint(x: 109, y: 31)
+            row.bits(at: row.roomPoint(brazier), colors: [AgentRow.gold, AgentRow.orange], count: 1, spread: 3, rise: 6...12, life: 0.8)
+        }
     }
 
-    /// Treasure room: jump for joy with confetti, run to the chest and toss
-    /// coins, raise the crystal sword, jump again. Gold glints everywhere.
+    /// Done: the hero jumps for joy in the middle of the treasure room,
+    /// arms up, under a speech bubble with a green tick, while confetti
+    /// flies and the gold glints.
     private func startDone() {
-        let center = style.spot, chest = CGPoint(x: 96, y: 54), sword = CGPoint(x: 36, y: 40)
-        let hop = SKAction.sequence([.moveBy(x: 0, y: 10, duration: 0.16), .moveBy(x: 0, y: -10, duration: 0.16),
-                                     .moveBy(x: 0, y: 5, duration: 0.1), .moveBy(x: 0, y: -5, duration: 0.1)])
+        alarm.removeAllChildren()
+        player.addChild(alarm)
+        let tick = SKSpriteNode(texture: host.tickBubbleTexture())
+        tick.size = CGSize(width: 22, height: 24)
+        tick.position = CGPoint(x: 0, y: AgentRow.heroSize / 2 + 15)
+        alarm.addChild(tick)
+        tick.run(.repeatForever(.sequence([.scale(to: 1.12, duration: 0.25), .scale(to: 1, duration: 0.25)])))
+        // Arms thrown up, waving with each jump.
+        let armTexture = host.armTexture(harness)
+        for side: CGFloat in [-1, 1] {
+            let arm = SKSpriteNode(texture: armTexture)
+            arm.size = CGSize(width: 6, height: 14)
+            arm.anchorPoint = CGPoint(x: 0.5, y: 0.08)
+            arm.position = CGPoint(x: side * 11, y: -2)
+            arm.zPosition = 0.1
+            alarm.addChild(arm)
+            arm.run(.repeatForever(.sequence([.rotate(toAngle: -side * 0.2, duration: 0.18), .rotate(toAngle: -side * 0.75, duration: 0.18)])))
+        }
+        let hop = SKAction.sequence([.moveBy(x: 0, y: 14, duration: 0.18), .moveBy(x: 0, y: -14, duration: 0.16), .wait(forDuration: 0.08)])
+        let small = SKAction.sequence([.moveBy(x: 0, y: 6, duration: 0.1), .moveBy(x: 0, y: -6, duration: 0.1), .wait(forDuration: 0.1)])
         let party = SKAction.run { [weak self] in self?.burstConfetti() }
-        let spin = SKAction.sequence([face(-1), .wait(forDuration: 0.12), face(1), .wait(forDuration: 0.12)])
-        player.run(.repeatForever(.sequence([
-            pose("work", pace: 0.1), .repeat(.sequence([party, hop, party, .wait(forDuration: 0.25)]), count: 3),
-            walkSeq(chest), face(1), pose("work", pace: 0.1),
-            .repeat(.sequence([.run { [weak self] in
-                guard let self = self else { return }
-                self.bits(at: self.roomPoint(CGPoint(x: 107, y: 48)), colors: [AgentRow.gold, AgentRow.orange, .white], count: 4, spread: 14, rise: 10...22, size: 3, life: 0.7)
-            }, .wait(forDuration: 0.3)]), count: 5),
-            walkSeq(sword), face(-1), pose("work", pace: 0.12), .repeat(.sequence([.run { [weak self] in
-                self?.sparkle(at: CGPoint(x: 26, y: .random(in: 30...40)), color: AgentRow.cyan, size: 14)
-            }, .wait(forDuration: 0.2)]), count: 8),
-            walkSeq(center), .repeat(spin, count: 3), pose("work", pace: 0.1)])), withKey: "move")
+        // No turning around: the bubble rides on the hero and would show the tick mirrored.
+        player.run(.sequence([face(1), pose("work", pace: 0.1), .repeatForever(.sequence([
+            party, hop, party, hop, small, small, party, hop, .wait(forDuration: 0.35)]))]), withKey: "move")
         let coins = [CGPoint(x: 16, y: 41), CGPoint(x: 32, y: 66), CGPoint(x: 46, y: 75), CGPoint(x: 20, y: 81), CGPoint(x: 64, y: 86),
                      CGPoint(x: 86, y: 89), CGPoint(x: 116, y: 83), CGPoint(x: 126, y: 41), CGPoint(x: 127, y: 75), CGPoint(x: 107, y: 46),
                      CGPoint(x: 26, y: 32), CGPoint(x: 72, y: 8), CGPoint(x: 20, y: 8), CGPoint(x: 124, y: 8)]
@@ -701,7 +921,7 @@ final class DungeonScene: SKScene {
         scaleMode = .resizeFill
         backgroundColor = NSColor(red: 0.05, green: 0.06, blue: 0.065, alpha: 1)
         addChild(container)
-        emptyLabel.text = "Sin agentes en la sesión"
+        emptyLabel.text = tr("Sin agentes en la sesión")
         emptyLabel.fontSize = 16
         emptyLabel.fontColor = NSColor(calibratedWhite: 0.5, alpha: 1)
         emptyLabel.isHidden = true
@@ -795,6 +1015,105 @@ final class DungeonScene: SKScene {
                                                        "w": CGColor(red: 1, green: 1, blue: 1, alpha: 0.9),
                                                        "W": CGColor(red: 1, green: 1, blue: 1, alpha: 1)])
         sheets["fx/sparkle"] = [texture]
+        return texture
+    }
+
+    /// A small book: closed (red cover, gold clasp) or open (two cream
+    /// pages with text lines; `flipped` moves the lines as a page turns).
+    func bookTexture(open: Bool, flipped: Bool = false) -> SKTexture {
+        let key = "fx/book/\(open)/\(flipped)"
+        if let cached = sheets[key]?.first { return cached }
+        let rows = !open ? ["kkkkk", "kRRRk", "kRYRk", "kRRRk", "kkkkk"]
+                 : flipped ? ["kkkk.kkkk", "kWWWkWWWk", "kWWWkWlWk", "kWlWkWWWk", "kRRRkRRRk", ".kkkkkkk."]
+                           : ["kkkk.kkkk", "kWWWkWWWk", "kWlWkWWWk", "kWWWkWlWk", "kRRRkRRRk", ".kkkkkkk."]
+        let texture = pixelTexture(rows, colors: ["k": CGColor(red: 0.094, green: 0.078, blue: 0.145, alpha: 1),
+                                                  "R": CGColor(red: 0.635, green: 0.149, blue: 0.2, alpha: 1),
+                                                  "Y": CGColor(red: 0.996, green: 0.906, blue: 0.38, alpha: 1),
+                                                  "W": CGColor(red: 0.918, green: 0.831, blue: 0.667, alpha: 1),
+                                                  "l": CGColor(red: 0.353, green: 0.412, blue: 0.533, alpha: 1)])
+        sheets[key] = [texture]
+        return texture
+    }
+
+    /// A small parchment scroll: rolled up, or open between two wooden rods.
+    func scrollTexture(open: Bool, flipped: Bool = false) -> SKTexture {
+        let key = "fx/scroll/\(open)/\(flipped)"
+        if let cached = sheets[key]?.first { return cached }
+        let rows = !open ? ["kkkkk", "kDWDk", "kkkkk"]
+                 : flipped ? ["kkkkkkkkk", "kDWWWWWDk", "kDWlWWlDk", "kDWWlWWDk", "kkkkkkkkk"]
+                           : ["kkkkkkkkk", "kDWWWWWDk", "kDWlWlWDk", "kDWWWlWDk", "kkkkkkkkk"]
+        let texture = pixelTexture(rows, colors: ["k": CGColor(red: 0.094, green: 0.078, blue: 0.145, alpha: 1),
+                                                  "D": CGColor(red: 0.722, green: 0.435, blue: 0.314, alpha: 1),
+                                                  "W": CGColor(red: 0.918, green: 0.831, blue: 0.667, alpha: 1),
+                                                  "l": CGColor(red: 0.635, green: 0.149, blue: 0.2, alpha: 1)])
+        sheets[key] = [texture]
+        return texture
+    }
+
+    /// A white speech bubble with a green tick, for a finished agent.
+    func tickBubbleTexture() -> SKTexture {
+        if let cached = sheets["fx/tick"]?.first { return cached }
+        let texture = pixelTexture([".kkkkkkkkk.",
+                                    "kwwwwwwwwwk",
+                                    "kwwwwwwwGwk",
+                                    "kwwwwwwGgwk",
+                                    "kwGwwwGgwwk",
+                                    "kwgGwGgwwwk",
+                                    "kwwgGgwwwwk",
+                                    "kwwwgwwwwwk",
+                                    "kwwwwwwwwwk",
+                                    ".kkkkkkkkk.",
+                                    "...kwk.....",
+                                    "....k......"], colors: ["k": CGColor(red: 0.094, green: 0.078, blue: 0.145, alpha: 1),
+                                                             "w": CGColor(red: 1, green: 1, blue: 1, alpha: 1),
+                                                             "G": CGColor(red: 0.388, green: 0.78, blue: 0.302, alpha: 1),
+                                                             "g": CGColor(red: 0.243, green: 0.537, blue: 0.282, alpha: 1)])
+        sheets["fx/tick"] = [texture]
+        return texture
+    }
+
+    /// A big red exclamation mark with a dark outline and a white glint.
+    func alertTexture() -> SKTexture {
+        if let cached = sheets["fx/alert"]?.first { return cached }
+        let texture = pixelTexture(["..wwwww..",
+                                    ".wkkkkkw.",
+                                    "wkRWRRdkw",
+                                    "wkRWRRdkw",
+                                    "wkRRRRdkw",
+                                    ".wkRRdkw.",
+                                    ".wkRRdkw.",
+                                    ".wkRRdkw.",
+                                    ".wkRRdkw.",
+                                    "..wkRkw..",
+                                    "..wkRkw..",
+                                    "..wkkkw..",
+                                    ".wwkkkww.",
+                                    ".wkRRdkw.",
+                                    ".wkRRdkw.",
+                                    ".wkkkkkw.",
+                                    "..wwwww.."], colors: ["k": CGColor(red: 0.094, green: 0.078, blue: 0.145, alpha: 1),
+                                                           "R": CGColor(red: 0.894, green: 0.231, blue: 0.267, alpha: 1),
+                                                           "d": CGColor(red: 0.635, green: 0.149, blue: 0.2, alpha: 1),
+                                                           "W": CGColor(red: 1, green: 1, blue: 1, alpha: 1),
+                                                           "w": CGColor(red: 1, green: 1, blue: 1, alpha: 1)])
+        sheets["fx/alert"] = [texture]
+        return texture
+    }
+
+    /// A 3x7 raised arm in the hero's sleeve colour, hand at the top.
+    func armTexture(_ harness: String) -> SKTexture {
+        let key = "fx/arm/" + harness
+        if let cached = sheets[key]?.first { return cached }
+        let sleeves: [String: CGColor] = ["claude": CGColor(red: 0.843, green: 0.463, blue: 0.263, alpha: 1),
+                                          "codex": CGColor(red: 0.227, green: 0.267, blue: 0.4, alpha: 1),
+                                          "kiro": CGColor(red: 0.408, green: 0.22, blue: 0.424, alpha: 1),
+                                          "gemini": CGColor(red: 0.071, green: 0.306, blue: 0.537, alpha: 1),
+                                          "hero": CGColor(red: 0.243, green: 0.537, blue: 0.282, alpha: 1)]
+        let hand = harness == "codex" ? CGColor(red: 0.753, green: 0.796, blue: 0.863, alpha: 1) : CGColor(red: 0.91, green: 0.718, blue: 0.588, alpha: 1)
+        let texture = pixelTexture(["kHk", "kHk", "kSk", "kSk", "kSk", "kSk", ".k."],
+                                   colors: ["k": CGColor(red: 0.094, green: 0.078, blue: 0.145, alpha: 1), "H": hand,
+                                            "S": sleeves[harness] ?? sleeves["hero"]!])
+        sheets[key] = [texture]
         return texture
     }
 

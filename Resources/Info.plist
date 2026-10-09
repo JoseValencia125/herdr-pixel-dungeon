@@ -10,5 +10,5 @@
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>NSHighResolutionCapable</key><true/>
 <key>LSUIElement</key><true/>
-<key>NSHumanReadableCopyright</key><string>App: Herdr Pixel Dungeon contributors. Pixel art: o_lobster (CC BY 4.0). Based on Claude Dungeon (MIT).</string>
+<key>NSHumanReadableCopyright</key><string>© 2026 Nacho Valencia. MIT.</string>
 </dict></plist>
