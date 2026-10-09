@@ -34,7 +34,7 @@ Close the window to keep monitoring from the menu bar, where a pixel knight helm
 | Herdr state | Room | Hero |
 | --- | --- | --- |
 | `working` | Forge: lit furnace, anvil and sparks | Attacking |
-| `blocked` | Sealed door: chains, keyhole seal, empty pedestal | Attention marker |
+| `blocked` | Sealed door: chains, keyhole seal, empty pedestal | Jumps on the rug under a red "!" |
 | `idle` | Inn room: bed, fireplace, moonlit window, sleeping cat | Waiting |
 | `done` | Treasure chamber: golden light, gem, open chest | Completion marker |
 | unknown | Foggy crossroads: three doors, broken signpost | Unknown |
@@ -52,7 +52,7 @@ Each harness has its own classic hero, coloured after the tool's brand (no logos
 **Subagents.** Herdr does not report subagents, so for Claude Code agents the app reads the transcripts Claude Code writes under `~/.claude/projects/<project>/<session>/subagents/`. It matches them by the session ID in Herdr's snapshot. A subagent counts as active while its transcript changed in the last 30 seconds. Active subagents appear as a small party of heroes under the agent, with a count. Other harnesses show no subagents.
 
 - Background Herdr queries every second, no overlapping reads, four-second timeout.
-- Native SpriteKit animations and crisp nearest-neighbor sprites: the hero types, hammers, rattles doors, celebrates or sleeps depending on the room.
+- Native SpriteKit animations and crisp nearest-neighbor sprites: the hero types, hammers, jumps on the rug when it needs you, celebrates or sleeps depending on the room.
 - Search, state filters, agent selection, project, pane, directory and terminal title.
 - Latest status change, counts and menu-bar attention indicator.
 - Explicit stale-data indication and automatic reconnection.

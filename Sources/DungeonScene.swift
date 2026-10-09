@@ -17,7 +17,7 @@ struct RoomStyle {
     var route: [CGPoint] = []     // waypoints from the door to the spot, around furniture
 
     static let all: [RoomStyle] = [
-        RoomStyle(status: "blocked", title: tr("ATENCIÓN"),  background: "room_blocked", color: .systemRed,    playerKind: "work", bubble: nil, spot: CGPoint(x: 72, y: 64), roam: 8,  lying: false),
+        RoomStyle(status: "blocked", title: tr("ATENCIÓN"),  background: "room_blocked", color: .systemRed,    playerKind: "idle", bubble: nil, spot: CGPoint(x: 72, y: 64), roam: 8,  lying: false),
         RoomStyle(status: "working", title: tr("TRABAJANDO"),background: "room_working", color: .systemOrange, playerKind: "work", bubble: nil, spot: CGPoint(x: 72, y: 34), roam: 0,  lying: false,
                   route: [CGPoint(x: 72, y: 80), CGPoint(x: 36, y: 74), CGPoint(x: 36, y: 36)]),
         RoomStyle(status: "idle",    title: tr("EN ESPERA"), background: "room_idle",    color: .systemGray,   playerKind: "idle", bubble: "z", spot: CGPoint(x: 63, y: 57), roam: 0,  lying: true,
@@ -367,6 +367,11 @@ final class AgentRow: SKNode {
             player.texture = host.sleeperFrame(harness)
             return
         }
+        if style.status == "blocked" {
+            // Needs attention: one still frame, so only the jump moves.
+            player.texture = host.heroFrames(harness, kind: "idle").first
+            return
+        }
         let textures = host.heroFrames(harness, kind: style.playerKind)
         player.texture = textures.first
         if textures.count > 1 {
@@ -651,11 +656,10 @@ final class AgentRow: SKNode {
         }
     }
 
-    /// Needs attention: the hero jumps up and down waving both arms under a
-    /// huge pulsing red "!", the room throbs with red light and the cell's
-    /// border blinks red. Now and then it bangs on the sealed door.
+    /// Needs attention: the hero keeps jumping on the rug under a huge
+    /// pulsing red "!", the room throbs with red light and the cell's border
+    /// blinks red.
     private func startBlocked() {
-        let center = style.spot, door = CGPoint(x: 72, y: 36)
         alarm.removeAllChildren()
         player.addChild(alarm)
         let mark = SKSpriteNode(texture: host.alertTexture())
@@ -664,20 +668,7 @@ final class AgentRow: SKNode {
         alarm.addChild(mark)
         mark.run(.repeatForever(.sequence([.scale(to: 1.25, duration: 0.18), .scale(to: 1, duration: 0.22), .wait(forDuration: 0.15)])))
         mark.run(.repeatForever(.sequence([.rotate(toAngle: 0.12, duration: 0.12), .rotate(toAngle: -0.12, duration: 0.24), .rotate(toAngle: 0, duration: 0.12)])))
-        // Two waving arms, hinged at the shoulders.
-        let armTexture = host.armTexture(harness)
-        for side: CGFloat in [-1, 1] {
-            let arm = SKSpriteNode(texture: armTexture)
-            arm.size = CGSize(width: 6, height: 14)
-            arm.anchorPoint = CGPoint(x: 0.5, y: 0.08)
-            arm.position = CGPoint(x: side * 11, y: -2)
-            arm.zPosition = 0.1
-            alarm.addChild(arm)
-            let up = SKAction.rotate(toAngle: -side * 0.35, duration: 0.14), out = SKAction.rotate(toAngle: -side * 1.25, duration: 0.14)
-            arm.run(.repeatForever(.sequence([up, out])))
-        }
         let hop = SKAction.sequence([.moveBy(x: 0, y: 12, duration: 0.16), .moveBy(x: 0, y: -12, duration: 0.14), .wait(forDuration: 0.06)])
-        let shake = SKAction.sequence([.moveBy(x: 3, y: 0, duration: 0.05), .moveBy(x: -6, y: 0, duration: 0.1), .moveBy(x: 3, y: 0, duration: 0.05)])
         let seal = SKSpriteNode(texture: host.glowTexture())
         seal.size = CGSize(width: 48, height: 48)
         seal.color = AgentRow.red
@@ -688,15 +679,7 @@ final class AgentRow: SKNode {
         seal.zPosition = -1
         fx.addChild(seal)
         seal.run(.repeatForever(.sequence([.fadeAlpha(to: 0.5, duration: 0.3), .fadeAlpha(to: 0.15, duration: 0.3)])))
-        let bang = SKAction.run { [weak self] in
-            guard let self = self else { return }
-            self.bits(at: self.roomPoint(CGPoint(x: 72, y: 20)), colors: [AgentRow.red, AgentRow.gold, .white], count: 5, spread: 14, rise: -10...6, life: 0.4)
-        }
-        player.run(.repeatForever(.sequence([
-            face(1), .repeat(hop, count: 6), face(-1), .repeat(hop, count: 6),
-            walkSeq(door, speed: 50), pose("work", pace: 0.08),
-            .repeat(.sequence([shake, bang, .wait(forDuration: 0.25)]), count: 3),
-            walkSeq(center, speed: 50), pose("work", pace: 0.1)])), withKey: "move")
+        player.run(.sequence([face(1), .repeatForever(hop)]), withKey: "move")
         // The whole room throbs red.
         let wash = SKSpriteNode(color: AgentRow.red, size: roomFrame.size)
         wash.position = CGPoint(x: roomFrame.midX, y: roomFrame.midY)
