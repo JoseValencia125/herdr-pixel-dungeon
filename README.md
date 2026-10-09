@@ -6,7 +6,7 @@
 
 Written in **Rust** on `egui`/`eframe`, with a status item in the menu bar or system tray. Each agent is an animated hero in a dungeon room that changes with its real Herdr status. Lives in a small floating window. No browser, WebView, Node.js, account or server required.
 
-Created by **Nacho Valencia**. All pixel art is original, drawn in Aseprite for this project. Inspired by **[Claude Dungeon](https://github.com/thousandsky2024/claude-pixel-agent-web)** by [thousandsky2024](https://github.com/thousandsky2024).
+Created by **Nacho Valencia**. All pixel art is original, drawn in Aseprite for this project.
 
 ## Download
 
@@ -134,3 +134,7 @@ If the dungeon is useful to you, you can [sponsor the project on GitHub](https:/
 - **Herdr contributors**: [Herdr](https://github.com/herdrdev/herdr) and its local API. Herdr is installed separately.
 
 Independent project; no endorsement or affiliation implied.
+
+## Credits
+
+Inspired by **[Claude Dungeon](https://github.com/thousandsky2024/claude-pixel-agent-web)** by [thousandsky2024](https://github.com/thousandsky2024), which first pictured coding agents as dungeon heroes. No code or artwork from it is included; see NOTICE.md.
