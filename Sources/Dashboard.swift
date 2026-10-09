@@ -97,6 +97,7 @@ struct ChatPanel: View {
     @State private var note: String?
     @State private var sending = false
     @State private var keys: Any?
+    @State private var choice: Int?   // option picked with ↑/↓ or a click, into `menu.options`
     @StateObject private var route = KeyRoute()
     @FocusState private var typing: Bool
 
@@ -119,9 +120,15 @@ struct ChatPanel: View {
                     ScrollView {
                         VStack(alignment:.leading,spacing:2) {
                             ForEach(Array(lines.enumerated()),id:\.offset) { i,line in
-                                Text(line).fontWeight(i == 0 && agent.question != nil ? .bold : .regular)
-                                    .foregroundStyle(i == 0 && agent.question != nil ? Color.white : Color(white:0.85))
+                                let option = menu.options.firstIndex { $0.line == i }
+                                let picked = option != nil && option == choice
+                                Text(line).fontWeight(picked || (i == 0 && agent.question != nil) ? .bold : .regular)
+                                    .foregroundStyle(picked || (i == 0 && agent.question != nil) ? Color.white : Color(white:0.85))
                                     .fixedSize(horizontal:false,vertical:true)
+                                    .frame(maxWidth:.infinity,alignment:.leading)
+                                    .background(picked ? agent.color.opacity(0.35) : Color.clear,in:RoundedRectangle(cornerRadius:3))
+                                    .contentShape(Rectangle())
+                                    .onTapGesture { if let option = option { pick(option) } }
                             }
                         }
                         .frame(maxWidth:.infinity,alignment:.leading)
@@ -151,7 +158,7 @@ struct ChatPanel: View {
                     .buttonStyle(.borderless).disabled(sending || draft.trimmingCharacters(in:.whitespaces).isEmpty)
                     .help(tr("Enviar (⏎)"))
                 if agent.status == "blocked" {
-                    Button(tr("Aceptar")) { run { monitor.press(["enter"],on:agent,done:$0) } }
+                    Button(tr("Aceptar")) { if let choice = choice { answer(choice) } else { run { monitor.press(["enter"],on:agent,done:$0) } } }
                         .help(tr("Elegir la opción marcada del agente (⏎ en su terminal)"))
                     Button(tr("Rechazar")) { run { monitor.press(["esc"],on:agent,done:$0) } }
                         .help(tr("Cancelar la petición del agente (esc en su terminal)"))
@@ -173,6 +180,7 @@ struct ChatPanel: View {
         .onDisappear { if let keys = keys { NSEvent.removeMonitor(keys) }; keys = nil }
         .onChange(of:agent) { route.agent = $0 }
         .onChange(of:draft) { route.draftEmpty = $0.trimmingCharacters(in:.whitespaces).isEmpty }
+        .onChange(of:lines) { _ in if let c = choice, c >= menu.options.count { choice = nil } }
         // Keep the terminal tail fresh while the panel is open.
         .task(id:agent.status) {
             while !Task.isCancelled {
@@ -192,6 +200,7 @@ struct ChatPanel: View {
                   event.modifierFlags.intersection([.command,.option,.control]).isEmpty else { return event }
             let key: String
             switch event.keyCode {
+            case 126 where route.move?(-1) == true, 125 where route.move?(1) == true: return nil
             case 126: key = "up"
             case 125: key = "down"
             case 36 where route.draftEmpty, 76 where route.draftEmpty: key = "enter"
@@ -201,9 +210,46 @@ struct ChatPanel: View {
             return nil
         }
         route.lines = { lines = $0 }
+        route.move = { delta in
+            let options = menu.options
+            guard !options.isEmpty else { return false }
+            let start = choice ?? menu.highlighted ?? (delta > 0 ? -1 : options.count)
+            pick(min(max(start + delta, 0), options.count - 1))
+            return true
+        }
+    }
+
+    /// The options of the question the agent is asking, if it is asking one.
+    private var menu: MenuOptions { agent.status == "blocked" ? MenuOptions(lines) : MenuOptions([]) }
+
+    /// Highlight an option and put its text in the box, ready to send with ⏎.
+    private func pick(_ index: Int) {
+        choice = index
+        draft = menu.options[index].text
+        typing = true
+    }
+
+    /// Answer with an option: a terminal menu gets the arrows that reach it
+    /// and ⏎; a question asked in plain text gets the option's text.
+    private func answer(_ index: Int) {
+        let options = menu
+        guard options.options.indices.contains(index) else { return }
+        choice = nil
+        if options.isMenu {
+            run { done in monitor.press(options.keys(choosing:index),on:agent) { failure in if failure == nil { draft = "" }; done(failure) } }
+        } else {
+            draft = options.options[index].text
+            submitText()
+        }
     }
 
     private func submit() {
+        if let choice = choice, menu.options.indices.contains(choice), draft == menu.options[choice].text { return answer(choice) }
+        choice = nil
+        submitText()
+    }
+
+    private func submitText() {
         let text = draft
         guard !sending, !text.trimmingCharacters(in:.whitespaces).isEmpty else { return }
         run { done in monitor.send(text,to:agent) { failure in if failure == nil { draft = "" }; done(failure) } }
@@ -255,5 +301,6 @@ private struct WindowDragArea: NSViewRepresentable {
 final class KeyRoute: ObservableObject {
     var agent: Agent?
     var draftEmpty = true
+    var move: ((Int) -> Bool)?   // ↑/↓ over a question's options; false when it has none
     var lines: (([String]) -> Void)?
 }

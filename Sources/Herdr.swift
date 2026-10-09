@@ -432,6 +432,37 @@ func questionLines(in message: String, needs: String?) -> [String] {
     return lines.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
 }
 
+/// The numbered options of the question an agent is asking (the last run of
+/// "1. …", "2. …" lines), and which one its terminal highlights with ❯, if
+/// any. A highlighted option means the agent shows a menu driven by arrow
+/// keys; without one the options are plain text to answer with.
+struct MenuOptions: Equatable {
+    struct Option: Equatable { let number: Int; let text: String; let line: Int }
+    var options: [Option] = []
+    var highlighted: Int?    // index into options
+    var isMenu: Bool { highlighted != nil }
+
+    init(_ lines: [String]) {
+        for (i, line) in lines.enumerated() {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard let match = trimmed.range(of: "^(❯\\s*)?\\d+[.)]\\s+", options: .regularExpression) else { continue }
+            let marked = trimmed.hasPrefix("❯")
+            let digits = trimmed[match].filter(\.isNumber)
+            guard let number = Int(digits) else { continue }
+            // A "1." after other options starts a newer question.
+            if number == 1 || options.last.map({ number != $0.number + 1 }) == true { options = []; highlighted = nil }
+            if marked { highlighted = options.count }
+            options.append(Option(number: number, text: String(trimmed[match.upperBound...]), line: i))
+        }
+    }
+
+    /// The keys that move the terminal's highlight to option `index` and pick it.
+    func keys(choosing index: Int) -> [String] {
+        let delta = index - (highlighted ?? 0)
+        return Array(repeating: delta > 0 ? "down" : "up", count: abs(delta)) + ["enter"]
+    }
+}
+
 /// The lines of an agent's terminal that say something, without Claude
 /// Code's own UI around its input box: status lines (✻ Worked…, ※ recap and
 /// their wrapped continuation), the input line and the mode footer. Numbered

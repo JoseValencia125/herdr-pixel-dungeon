@@ -244,8 +244,13 @@ func selfTest() throws {
     let job=BackgroundJob(state:"blocked",needs:"¿Sí?",transcript:"/t.jsonl",updated:Date())
     let asked=Agent(id:"q",name:"claude",status:"idle",project:"p",activity:"a",cwd:"~").with(jobs:[job])
     precondition(asked.status=="blocked" && asked.question=="¿Sí?" && asked.questionTranscript=="/t.jsonl")
+    let menu=MenuOptions(["Bash(rm -rf build)"," Do you want to proceed?","❯ 1. Yes","  2. Yes, and don't ask again","  3. No, and tell Claude what to do"])
+    precondition(menu.options.map(\.number)==[1,2,3] && menu.highlighted==0 && menu.isMenu && menu.options[1].text=="Yes, and don't ask again" && menu.options[2].line==4)
+    precondition(menu.keys(choosing:2)==["down","down","enter"] && menu.keys(choosing:0)==["enter"])
+    let plain=MenuOptions(["¿Qué rama?","1. Rama de PR","2) Renombrar","texto","1. Otra pregunta","2. Sí"])
+    precondition(!plain.isMenu && plain.options.map(\.text)==["Otra pregunta","Sí"] && MenuOptions(["hola"]).options.isEmpty)
     var fired=false;let item=ClosureMenuItem(title:"x"){fired=true};_=(item.target as AnyObject).perform(item.action,with:item);precondition(fired,"Context menu item did not fire")
-    print("PASS: snapshot states, filtering, empty/error handling, monitor transitions, room art, heroes, subagent sessions, subagents keep agents busy, tool actions, translations, git branch, sound alerts + prefs, chat selection, context menu, question extraction, \(files.count) bundled sprites")
+    print("PASS: snapshot states, filtering, empty/error handling, monitor transitions, room art, heroes, subagent sessions, subagents keep agents busy, tool actions, translations, git branch, sound alerts + prefs, chat selection, question options, context menu, question extraction, \(files.count) bundled sprites")
 }
 
 if CommandLine.arguments.contains("--self-test") {
