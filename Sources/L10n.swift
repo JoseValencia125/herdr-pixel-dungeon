@@ -129,6 +129,11 @@ enum L10n {
         "%@ no arrancó. Revisa que esté instalado.": ["%@ did not start. Check that it is installed.", "%@ n’a pas démarré. Vérifie qu’il est installé.", "%@ non è partito. Controlla che sia installato.", "%@ não iniciou. Verifique se está instalado."],
         "El agente arrancó, pero no recibió el prompt.": ["The agent started but did not get the prompt.", "L’agent a démarré mais n’a pas reçu le prompt.", "L’agente è partito ma non ha ricevuto il prompt.", "O agente iniciou, mas não recebeu o prompt."],
         "Invocaste a %@ en %@": ["You summoned %@ in %@", "Tu as invoqué %@ dans %@", "Hai evocato %@ in %@", "Você invocou %@ em %@"],
+        // Window preferences
+        "Siempre visible": ["Always on top", "Toujours au premier plan", "Sempre in primo piano", "Sempre visível"],
+        "Abrir al iniciar sesión": ["Open at login", "Ouvrir à la connexion", "Apri al login", "Abrir ao iniciar sessão"],
+        "macOS no permitió abrir la app al iniciar sesión.": ["macOS did not allow opening the app at login.", "macOS n’a pas autorisé l’ouverture à la connexion.",
+                                                              "macOS non ha permesso l’apertura al login.", "O macOS não permitiu abrir o app ao iniciar sessão."],
         // Demo activity titles
         "Construyendo la página de ajustes": ["Building the settings page", "Construction de la page des réglages", "Costruisco la pagina delle impostazioni", "Construindo a página de ajustes"],
         "Revisando las pruebas": ["Reviewing the tests", "Révision des tests", "Rivedo i test", "Revisando os testes"],

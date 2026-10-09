@@ -1,5 +1,6 @@
 import Cocoa
 import SwiftUI
+import ServiceManagement
 
 /// Menu bar icon: a pixel knight's great helm (T visor, breathing holes,
 /// gorget), drawn one square per pixel as a template image so macOS tints
@@ -95,7 +96,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window = WidgetPanel(contentRect: NSRect(x: 0, y: 0, width: DungeonScene.width(columns: 2), height: 400),
                              styleMask: [.borderless, .nonactivatingPanel, .resizable],
                              backing: .buffered, defer: false)
-        window.level = .floating
+        window.level = alwaysOnTop ? .floating : .normal
         window.isReleasedWhenClosed = false
         window.hasShadow = true
         window.isOpaque = false
@@ -116,7 +117,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NotificationCenter.default.addObserver(self, selector: #selector(gripBegan), name: ResizeGrip.began, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(gripEnded), name: ResizeGrip.ended, object: nil)
         if CommandLine.arguments.contains("--demo") { monitor.demo = true }
-        anchorToCorner()
+        restorePosition()
         window.orderFrontRegardless()
         monitor.start()
     }
@@ -181,6 +182,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     /// Place the widget in the top-right corner, just under the menu bar.
+    /// Keep the widget above other windows (the default) or let them cover it.
+    var alwaysOnTop = UserDefaults.standard.object(forKey: "window.onTop") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(alwaysOnTop, forKey: "window.onTop"); window.level = alwaysOnTop ? .floating : .normal }
+    }
+
+    /// Remember where the user left the widget: its top-right corner, since
+    /// that is the corner that stays put as it grows.
+    func windowDidMove(_ notification: Notification) {
+        guard resizeStart == nil, !window.inLiveResize else { return }
+        UserDefaults.standard.set([window.frame.maxX, window.frame.maxY], forKey: "window.topRight")
+    }
+
+    /// Put the widget back where it was, if that spot is still on a screen;
+    /// otherwise in the top-right corner.
+    func restorePosition() {
+        guard let saved = UserDefaults.standard.array(forKey: "window.topRight") as? [CGFloat], saved.count == 2,
+              let screen = NSScreen.screens.first(where: { $0.visibleFrame.insetBy(dx: -1, dy: -1).contains(NSPoint(x: saved[0] - 20, y: saved[1] - 20)) })
+        else { return anchorToCorner() }
+        let height = targetHeight(), width = targetWidth()
+        let x = min(max(saved[0] - width, screen.visibleFrame.minX), screen.visibleFrame.maxX - width)
+        window.setFrame(NSRect(x: x, y: saved[1] - height, width: width, height: height), display: true)
+    }
+
     func anchorToCorner() {
         guard let screen = NSScreen.main else { return }
         let visible = screen.visibleFrame
@@ -203,6 +227,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let menu = NSMenu()
         menu.addItem(withTitle: tr("Mostrar / ocultar"), action: #selector(toggle), keyEquivalent: "").target = self
         menu.addItem(withTitle: tr("Reposicionar en la esquina"), action: #selector(reanchor), keyEquivalent: "").target = self
+        let top = menu.addItem(withTitle: tr("Siempre visible"), action: #selector(toggleOnTop), keyEquivalent: "")
+        top.target = self
+        top.state = alwaysOnTop ? .on : .off
+        let login = menu.addItem(withTitle: tr("Abrir al iniciar sesión"), action: #selector(toggleLogin), keyEquivalent: "")
+        login.target = self
+        login.state = SMAppService.mainApp.status == .enabled ? .on : .off
         menu.addItem(.separator())
         let soundMenu = NSMenu()
         for (title, action, on) in [(tr("Sonidos activados"), #selector(toggleSound), sounds.enabled),
@@ -266,6 +296,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         guard let name = sender.representedObject as? String else { return }
         if monitor.demo { monitor.setDemo(false) }
         monitor.setSession(name)
+    }
+    @objc func toggleOnTop() { alwaysOnTop.toggle() }
+    /// Launch at login through SMAppService. A locally built, ad-hoc signed
+    /// app may be refused; then say so instead of pretending.
+    @objc func toggleLogin() {
+        let service = SMAppService.mainApp
+        do {
+            if service.status == .enabled { try service.unregister() } else { try service.register() }
+        } catch {
+            NSApp.activate(ignoringOtherApps: true)
+            let alert = NSAlert()
+            alert.messageText = tr("macOS no permitió abrir la app al iniciar sesión.")
+            alert.informativeText = error.localizedDescription
+            alert.runModal()
+        }
     }
     @objc func toggleDemo() { monitor.setDemo(!monitor.demo) }
     @objc func toggleNotify() { notifier.enabled.toggle() }

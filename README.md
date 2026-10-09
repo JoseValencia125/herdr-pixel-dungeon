@@ -33,7 +33,7 @@ open "$HOME/Applications/Herdr Pixel Dungeon.app"
 
 Uses only Apple frameworks; no third-party packages. The build produces a locally ad-hoc-signed app for your Mac's architecture. It is not Developer ID signed or notarized.
 
-Close the window to keep monitoring from the menu bar, where a pixel knight's helm marks the app. Use its menu to reopen the window, set sounds and notifications, or quit. **Herdr session** lists Herdr's sessions (`herdr session list`) to switch which one the dungeon watches — agents, log and selection start over — and remembers your pick; `HERDR_SESSION` still overrides it at launch. The same menu has **Demo** to try fictional agents without Herdr. Live mode never inserts fictional agents.
+Close the window to keep monitoring from the menu bar, where a pixel knight's helm marks the app. Use its menu to reopen the window, set sounds and notifications, or quit. **Herdr session** lists Herdr's sessions (`herdr session list`) to switch which one the dungeon watches — agents, log and selection start over — and remembers your pick; `HERDR_SESSION` still overrides it at launch. The same menu has **Demo** to try fictional agents without Herdr, **Always on top** (on by default) and **Open at login** (through macOS's login items; a locally built app may be refused, and the app says so). The widget reopens where you left it, at the size you gave it, and remembers sounds, notifications, the session and the state filter. Live mode never inserts fictional agents.
 
 ## States and rooms
 
