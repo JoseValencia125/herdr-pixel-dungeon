@@ -164,7 +164,25 @@ struct BackgroundJob {
     let updated: Date
 }
 
-func backgroundJobs(within seconds: TimeInterval = 3600) -> [String:[BackgroundJob]] {
+/// Jobs whose process is alive: Claude Code's daemon keeps one terminal
+/// socket per running job, /tmp/cc-daemon-<uid>/<daemon>/pty/<job>.sock.
+/// A job that died (its pane closed, the Mac restarted) leaves its last
+/// state.json behind, frozen, so without this it could ask for attention
+/// for an hour. Nil when that folder does not exist (another Claude Code
+/// layout): then every recent job counts, as before.
+func liveJobIDs(root: String = "/tmp/cc-daemon-\(getuid())") -> Set<String>? {
+    let fm = FileManager.default
+    guard let daemons = try? fm.contentsOfDirectory(atPath: root) else { return nil }
+    var live: Set<String> = []
+    for daemon in daemons {
+        for file in (try? fm.contentsOfDirectory(atPath: root + "/" + daemon + "/pty")) ?? [] where file.hasSuffix(".sock") {
+            live.insert(String(file.dropLast(".sock".count)))
+        }
+    }
+    return live
+}
+
+func backgroundJobs(within seconds: TimeInterval = 3600, live: Set<String>? = liveJobIDs()) -> [String:[BackgroundJob]] {
     let fm = FileManager.default
     let root = fm.homeDirectoryForCurrentUser.appendingPathComponent(".claude/jobs")
     guard let dirs = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil) else { return [:] }
@@ -172,7 +190,7 @@ func backgroundJobs(within seconds: TimeInterval = 3600) -> [String:[BackgroundJ
     dates.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     let cutoff = Date().addingTimeInterval(-seconds)
     var byCwd: [String:[BackgroundJob]] = [:]
-    for dir in dirs {
+    for dir in dirs where live?.contains(dir.lastPathComponent) ?? true {
         guard let data = try? Data(contentsOf: dir.appendingPathComponent("state.json")),
               let job = try? JSONSerialization.jsonObject(with: data) as? [String:Any],
               let state = job["state"] as? String,
