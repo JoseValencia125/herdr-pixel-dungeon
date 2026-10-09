@@ -72,7 +72,7 @@ pub fn hud(ui: &mut Ui, monitor: &mut Monitor, state: &mut HudState) -> HudActio
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let open = state.searching || !monitor.query.is_empty();
-            let glyph = if open { "✕" } else { "🔍" };
+            let glyph = if open { "x" } else { "🔍" };
             let button = flat_button(ui, mono(glyph, 11.0).color(alpha(Color32::WHITE, 0.75)))
                 .on_hover_text(if state.searching { tr("Cerrar búsqueda (esc)") } else { tr("Buscar por proyecto, agente, rama, carpeta o actividad") });
             if button.clicked() {
@@ -228,8 +228,8 @@ pub fn chat_panel(ui: &mut Ui, monitor: &Monitor, agent: &Agent, state: &mut Cha
             ui.label(mono(&agent.name, 12.0).strong().color(Color32::WHITE));
             ui.label(mono(&format!("{} · {}", agent.project, agent.label()), 11.0).color(DIM));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if flat_button(ui, mono("✕", 12.0).color(Color32::WHITE)).on_hover_text("Cerrar (esc)").clicked() { action.close = true; }
-                if flat_button(ui, mono("⧉", 13.0).color(Color32::WHITE)).on_hover_text(tr("Enfocar este agente en Herdr")).clicked() && !sending {
+                if flat_button(ui, mono("x", 13.0).color(Color32::WHITE)).on_hover_text("Cerrar (esc)").clicked() { action.close = true; }
+                if flat_button(ui, mono("↗", 13.0).color(Color32::WHITE)).on_hover_text(tr("Enfocar este agente en Herdr")).clicked() && !sending {
                     state.run(monitor.focus(agent));
                 }
             });
@@ -283,7 +283,7 @@ pub fn chat_panel(ui: &mut Ui, monitor: &Monitor, agent: &Agent, state: &mut Cha
                 }
                 state.focus = true;
             }
-            if ui.add_enabled(!sending && !empty, egui::Button::new(mono("➤", 12.0)).frame(false)).on_hover_text(tr("Enviar (⏎)")).clicked() {
+            if ui.add_enabled(!sending && !empty, egui::Button::new(mono("→", 13.0)).frame(false)).on_hover_text(tr("Enviar (⏎)")).clicked() {
                 submit(state, monitor, agent, &menu);
             }
             if agent.status == "blocked" {
@@ -380,7 +380,7 @@ pub fn compose_panel(ui: &mut Ui, monitor: &Monitor, prefs: &mut Prefs, state: &
             ui.label(mono("+", 14.0).color(green));
             ui.label(mono(&tr("Invocar un agente"), 12.0).strong().color(Color32::WHITE));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if flat_button(ui, mono("✕", 12.0).color(Color32::WHITE)).on_hover_text(tr("Cerrar")).clicked() { action.close = true; }
+                if flat_button(ui, mono("x", 13.0).color(Color32::WHITE)).on_hover_text(tr("Cerrar")).clicked() { action.close = true; }
             });
         });
         ui.horizontal(|ui| {
@@ -451,7 +451,7 @@ pub fn activity_log(ctx: &Context, events: &[GuildEvent]) -> bool {
                 ui.horizontal(|ui| {
                     ui.label(mono(&tr("Registro de la guild"), 12.0).strong().color(ink));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if flat_button(ui, mono("✕", 10.0).strong().color(ink)).on_hover_text(tr("Cerrar")).clicked() { close = true; }
+                        if flat_button(ui, mono("x", 11.0).strong().color(ink)).on_hover_text(tr("Cerrar")).clicked() { close = true; }
                     });
                 });
                 let line = ui.available_rect_before_wrap();
@@ -526,10 +526,10 @@ pub fn controls(ctx: &Context, sounds_on: bool, log_open: bool) -> ControlAction
                 ui.spacing_mut().item_spacing = vec2(7.0, 0.0);
                 if flat_button(ui, mono("+", 15.0).strong().color(Color32::from_rgb(140, 217, 115))).on_hover_text(tr("Invocar un agente nuevo")).clicked() { action.compose = true; }
                 if flat_button(ui, mono("📜", 12.0).color(alpha(Color32::from_rgb(237, 214, 158), if log_open { 1.0 } else { 0.85 }))).on_hover_text(tr("Registro de actividad")).clicked() { action.log = true; }
-                let speaker = if sounds_on { "♪" } else { "♪̸" };
+                let speaker = if sounds_on { "🔊" } else { "🔇" };
                 if flat_button(ui, mono(speaker, 13.0).color(alpha(Color32::WHITE, if sounds_on { 0.85 } else { 0.45 }))).on_hover_text(if sounds_on { tr("Silenciar sonidos") } else { tr("Activar sonidos") }).clicked() { action.sound = true; }
                 if flat_button(ui, mono("–", 15.0).strong().color(Color32::from_rgb(250, 189, 46))).on_hover_text(tr("Minimizar (ocultar)")).clicked() { action.minimize = true; }
-                if flat_button(ui, mono("✕", 13.0).strong().color(Color32::from_rgb(242, 84, 77))).on_hover_text(tr("Cerrar")).clicked() { action.close = true; }
+                if flat_button(ui, mono("x", 14.0).strong().color(Color32::from_rgb(242, 84, 77))).on_hover_text(tr("Cerrar")).clicked() { action.close = true; }
             });
         });
     });
