@@ -108,6 +108,10 @@ open 'build/Herdr Pixel Dungeon.app' --args --demo
 
 Self-tests cover snapshot states, invalid/empty replies, monitor transitions, subagents, tool actions, translations, sound alerts and their settings, chat selection, git branches, hero mapping and bundled PNG decoding. `--diagnose` prints live agent data; review it before sharing publicly.
 
+## Support
+
+If the dungeon is useful to you, you can [sponsor the project on GitHub](https://github.com/sponsors/JoseValencia125). Sponsorships help pay for the time spent drawing new heroes and rooms and keeping up with Herdr releases.
+
 ## Credits and licenses
 
 - **Nacho Valencia**: code, room backgrounds (`Resources/Sprites/rooms`) and heroes (`Resources/Sprites/heroes`), sources in `art/`. MIT, see [LICENSE](LICENSE) and [NOTICE.md](NOTICE.md).
