@@ -129,20 +129,14 @@ Self-tests cover snapshot states, invalid/empty replies, monitor transitions, su
 
 If the dungeon is useful to you, you can [sponsor the project on GitHub](https://github.com/sponsors/JoseValencia125). Sponsorships help pay for the time spent drawing new heroes and rooms and keeping up with Herdr releases.
 
-## Credits and licenses
-
-- **Nacho Valencia**: code, room backgrounds (`Resources/Sprites/rooms`) and heroes (`Resources/Sprites/heroes`), sources in `art/`. MIT, see [LICENSE](LICENSE) and [NOTICE.md](NOTICE.md).
-- **Inspiration**: [Claude Dungeon](https://github.com/thousandsky2024/claude-pixel-agent-web) by thousandsky2024. No code or art from it is included.
-- **Herdr contributors**: [Herdr](https://github.com/herdrdev/herdr) and its local API. Herdr is installed separately.
-
-Independent project; no endorsement or affiliation implied.
-
 ## Without Herdr (optional)
 
 Herdr is what lets the dungeon talk to the agents: it owns their terminals, reports each pane's state and types into it. Without it the app still works as a **read-only viewer**: it finds the agents running in any terminal by their processes (Claude Code, Codex, Kiro, Gemini and the other harnesses Herdr knows) and infers their state from the files they write — Claude Code and Codex transcripts give working, waiting, and a tool call waiting for permission; the last prompt becomes the room's activity line. The chat shows the agent's last reply but cannot send anything, and there is no summoning. A banner over the rooms offers **Install Herdr** (its official installer, `curl -fsSL https://herdr.dev/install.sh | sh`), **Open Herdr** (a terminal running `herdr`, which leaves its server up) or **Carry on without Herdr**; the menu's **Open Herdr at startup** does the opening for you. Agents only appear in the full dungeon when they run inside Herdr.
 
-## Credits
+## Credits and licenses
 
-Created by **Nacho Valencia**. All pixel art is original, drawn in Aseprite for this project.
+Created by **Nacho Valencia**: code, room backgrounds (`Resources/Sprites/rooms`) and heroes (`Resources/Sprites/heroes`), all original pixel art drawn in Aseprite, sources in `art/`. MIT, see [LICENSE](LICENSE) and [NOTICE.md](NOTICE.md).
 
-Inspired by **[Claude Dungeon](https://github.com/thousandsky2024/claude-pixel-agent-web)** by [thousandsky2024](https://github.com/thousandsky2024), which first pictured coding agents as dungeon heroes. No code or artwork from it is included; see NOTICE.md.
+Inspired by **[Claude Dungeon](https://github.com/thousandsky2024/claude-pixel-agent-web)** by [thousandsky2024](https://github.com/thousandsky2024), which first pictured coding agents as dungeon heroes. No code or artwork from it is included.
+
+[Herdr](https://github.com/herdrdev/herdr) and its local API are by the Herdr contributors; Herdr is installed separately. Independent project; no endorsement or affiliation implied.
