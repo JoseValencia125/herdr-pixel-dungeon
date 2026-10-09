@@ -20,6 +20,10 @@ Codex and Kiro agents do the same from their own session logs, matched by the se
 
 When a Claude Code pane shows its list of background sessions, Herdr reports the pane as idle, or reflects only the highlighted session, even while other sessions keep working. The app also reads each job's `~/.claude/jobs/<id>/state.json` (its live tempo, question and folder only) and gives a Claude Code pane the most urgent state among the sessions started in its folder during the last hour: one waiting for input makes the room *blocked*, one working makes it *working*. Only jobs whose process is still alive count (Claude Code keeps a terminal socket per running job under `/tmp/cc-daemon-<uid>/`), so a job that died while asking something does not keep its room asking for attention.
 
+## Session limits
+
+When Claude Code hits its usage limit it writes the refusal to the session's transcript ("You've hit your session limit · resets 2:20pm (…)", with the exact reset time) and a background job's state says "rate limited — wait and retry". The app reads both and puts the agent in the violet *trapped* room: the hero locked in a cage, a countdown to the reset under it and in the chat's header, and a violet chip in the HUD that appears only while someone is trapped. A real question still wins (the room stays *blocked*), and so does an agent that is working again. Anything written to the session after the refusal ends the limit; when the reset time passes the room goes back to Herdr's state, and a background job that was waiting to retry asks for attention. Trapped rooms sort right after those that need attention.
+
 ## Subagents
 
 Herdr does not report subagents, so for Claude Code agents the app reads the transcripts Claude Code writes under `~/.claude/projects/<project>/<session>/subagents/`, matched by the session ID in Herdr's snapshot. A subagent counts as active while its transcript changed in the last 30 seconds. Active subagents appear as small heroes of the same harness, with a count in the room's title; each goes to the station of the last tool in its own transcript and walks to a new one when it changes tool. Other harnesses show no subagents.

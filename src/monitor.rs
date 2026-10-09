@@ -264,7 +264,7 @@ impl Monitor {
             for agent in &next {
                 if let Some(old) = previous.get(&agent.id) {
                     if old.status != agent.status {
-                        let tone = match agent.status.as_str() { "working" => "working", "blocked" => "blocked", "idle" => "idle", "done" => "done", _ => "info" };
+                        let tone = match agent.status.as_str() { "working" => "working", "blocked" => "blocked", "limited" => "limited", "idle" => "idle", "done" => "done", _ => "info" };
                         self.log(format!("{} · {}", agent.project, agent.label()), tone);
                     }
                     if agent.subagents > old.subagents {
@@ -703,7 +703,7 @@ impl Monitor {
                 return;
             }
             // A background job asking something: its whole question, options included.
-            if !demo && agent.status == "blocked" {
+            if !demo && (agent.status == "blocked" || agent.status == "limited") {
                 if let Some(path) = &agent.question_transcript {
                     if let Some(message) = file_tail(path, 131_072).and_then(|t| last_assistant_text(&t)) {
                         let rows = question_lines(&message, agent.question.as_deref());
@@ -712,7 +712,9 @@ impl Monitor {
                 }
             }
             let text = if demo {
-                if agent.status == "blocked" {
+                if agent.status == "limited" {
+                    "You've hit your session limit · resets 2:20pm".to_string()
+                } else if agent.status == "blocked" {
                     "● Bash(rm -rf build && make)\n  Do you want to proceed?\n❯ 1. Yes\n  2. Yes, and don't ask again\n  3. No, and tell Claude what to do".to_string()
                 } else {
                     format!("● {}\n  ⎿ Leyendo archivos del proyecto…", agent.activity)

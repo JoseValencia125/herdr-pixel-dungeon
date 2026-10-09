@@ -4,10 +4,10 @@
 
 **A native pixel-art guild for your live [Herdr](https://herdr.dev) agents, for macOS and Linux.**
 
-Each coding agent is a hero in a dungeon room that changes with its real Herdr status: working at the forge, asking for your attention, resting, done. Click a room to answer the agent, accept or decline its permission prompts, or summon a new one. Rust, `egui`, a status item in the menu bar or tray, no browser or server.
+Each coding agent is a hero in a dungeon room that changes with its real Herdr status: working at the forge, asking for your attention, caged until its usage limit resets, resting, done. Click a room to answer the agent, accept or decline its permission prompts, or summon a new one. Rust, `egui`, a status item in the menu bar or tray, no browser or server.
 
 <p align="center">
-  <img src="docs/media/demo.gif" width="460" alt="The widget in demo mode: six agents working, asking for attention, waiting and done">
+  <img src="docs/media/demo.gif" width="460" alt="The widget in demo mode: six agents working, asking for attention, trapped by the session limit, waiting and done">
 </p>
 
 <p align="center"><a href="docs/media/demo.mp4">Watch the full demo video</a> · <a href="docs/media/widget.png">Full-size screenshot</a> · <a href="docs/GUIDE.md">Guide</a></p>
@@ -22,11 +22,14 @@ Binaries for macOS (`.app`) and Linux (x86_64) are on the [Releases](https://git
 | --- | --- | --- | --- |
 | `working` | <img src="docs/media/room_working.png" width="216" alt=""> | Workshop: desk, bookshelves, forge, alchemy table | Works at the station of its last tool: reads, forges, brews, summons, plans or types |
 | `blocked` | <img src="docs/media/room_blocked.png" width="216" alt=""> | Sealed door, braziers, a rug | Jumps on the rug under a pulsing red "!" |
+| session limit | <img src="docs/media/room_limited.png" width="216" alt=""> | The sealed room in violet | Locked in a cage that drops from the ceiling, rattling the bars over a countdown to the reset |
 | `idle` | <img src="docs/media/room_idle.png" width="216" alt=""> | Inn room at night | Sleeps under the blanket, z's drifting up |
 | `done` | <img src="docs/media/room_done.png" width="216" alt=""> | Treasure chamber | Jumps for joy under a green tick, confetti flying |
 | unknown | <img src="docs/media/room_unknown.png" width="216" alt=""> | Ruins with a portal | Wanders, looking around |
 
 When the state changes the hero walks out through the door, the room changes behind it, and it walks back in.
+
+The session limit is not a Herdr state: the dungeon reads it from Claude Code's own files when an agent or one of its background sessions hits its usage limit ("You've hit your session limit · resets 2:20pm"), and shows it until the limit resets.
 
 ## Heroes
 
@@ -44,6 +47,7 @@ Original pixel art drawn in Aseprite (sources in `art/`), coloured after each to
 
 - **Chat with an agent**: its terminal's last lines, a box to reply, ↑/↓ to pick among a question's options, Accept / Decline / Stop buttons, `/exit` from the right-click menu.
 - **Summon agents** in any folder with a first prompt, through Herdr.
+- **Session limits**: a trapped agent waits in a cage with the time left until its limit resets, also shown in its chat.
 - **Chimes and desktop notifications** when an agent needs help or finishes.
 - **Subagents** as small heroes at the station of their own tool (Claude Code).
 - **Filters, search and an activity log**; the window resizes to whole rooms, scrolls, and remembers where you left it.
@@ -69,23 +73,16 @@ cd herdr-pixel-dungeon
 
 ## Support the Guild 🧪⚔️
 
-I build open-source tools for developers, including **Herdr Pixel Dungeon** and other experiments around AI agents, developer tooling, and pixel-art interfaces.
+Herdr Pixel Dungeon is free and open source, built alongside other experiments in AI agents, developer tooling and pixel-art interfaces. If it brightens your terminal, you can buy the guild a potion on [GitHub Sponsors](https://github.com/sponsors/JoseValencia125).
 
-If you enjoy the project and want to support its development, you can buy the guild a potion.
+<p align="center"><a href="https://github.com/sponsors/JoseValencia125"><img src="https://img.shields.io/badge/Sponsor-Buy%20the%20guild%20a%20potion-db61a2?logo=githubsponsors&logoColor=white" alt="Sponsor Nacho Valencia on GitHub"></a></p>
 
-Every contribution helps me keep building, experimenting, fixing bugs, and releasing new features.
+| Potion | Price | |
+| --- | --- | --- |
+| 🧪 [**Small Potion**](https://github.com/sponsors/JoseValencia125/sponsorships?tier_id=665811) | $3, one-time | A small thank-you that keeps the project alive and the agents adventuring. |
+| 🧪✨ [**Greater Potion**](https://github.com/sponsors/JoseValencia125/sponsorships?tier_id=665812) | $10, one-time | For those who really enjoy the project and want to give development an extra boost. |
 
-No subscriptions. No paywalls. Just a way to support open-source work. ❤️
-
-### 🧪 Small Potion — $3
-Buy the guild a potion.
-
-A small thank-you that helps keep the project alive and the agents adventuring.
-
-### 🧪✨ Greater Potion — $10
-Buy the guild a greater potion.
-
-For those who really enjoy the project and want to give development an extra boost.
+Prefer another amount? Pick a [custom one-time or monthly sponsorship](https://github.com/sponsors/JoseValencia125). Every potion goes into new heroes and rooms, bug fixes and keeping up with Herdr releases. No paywalls: every feature stays free for everyone.
 
 Thank you for supporting independent open-source development. ⚔️
 

@@ -33,6 +33,8 @@ pub struct Agent {
     pub question: Option<String>,
     /// That job's transcript, to show the whole question.
     pub question_transcript: Option<String>,
+    /// When a "limited" agent's usage limit resets (unix seconds), if known.
+    pub limit_resets: Option<i64>,
 }
 
 impl Agent {
@@ -51,6 +53,7 @@ impl Agent {
             action: None,
             question: None,
             question_transcript: None,
+            limit_resets: None,
         }
     }
 
@@ -62,6 +65,7 @@ impl Agent {
         tr(match self.status.as_str() {
             "working" => "Trabajando",
             "blocked" => "Necesita atención",
+            "limited" => "Límite de sesión",
             "idle" => "En espera",
             "done" => "Listo",
             _ => "Sin estado",
@@ -71,11 +75,17 @@ impl Agent {
     pub fn rank_of(status: &str) -> usize {
         match status {
             "blocked" => 0,
-            "working" => 1,
-            "idle" => 2,
-            "done" => 3,
-            _ => 4,
+            "limited" => 1,
+            "working" => 2,
+            "idle" => 3,
+            "done" => 4,
+            _ => 5,
         }
+    }
+
+    /// Seconds until a limited agent's usage limit resets (never negative).
+    pub fn limit_left(&self, now: i64) -> Option<i64> {
+        self.limit_resets.map(|r| (r - now).max(0))
     }
 
     pub fn rank(&self) -> usize {
@@ -90,13 +100,31 @@ impl Agent {
             if Agent::rank_of(urgent) < self.rank() {
                 self.status = urgent.to_string();
             }
+        } else if states.contains(&"limited") && self.status != "working" {
+            // Only jobs stuck on the usage limit: the pane's own "blocked" is
+            // the job list waiting on them, not a question for you.
+            self.status = "limited".into();
         }
-        if self.status == "blocked" {
-            if let Some(asking) = jobs.iter().filter(|j| j.state == "blocked").max_by_key(|j| j.updated) {
+        if self.status == "blocked" || self.status == "limited" {
+            let state = self.status.clone();
+            if let Some(asking) = jobs.iter().filter(|j| j.state == state).max_by_key(|j| j.updated) {
                 self.question = asking.needs.clone();
                 self.question_transcript = asking.transcript.clone();
             }
         }
+        if self.status == "limited" {
+            self.limit_resets = jobs.iter().filter(|j| j.state == "limited").filter_map(|j| j.resets).min();
+        }
+        self
+    }
+
+    /// The agent's own session hit the usage limit: trapped until it resets,
+    /// unless it is working again.
+    pub fn with_limit(mut self, limit: Option<Option<i64>>) -> Agent {
+        let Some(resets) = limit else { return self };
+        if self.status == "working" { return self; }
+        self.status = "limited".into();
+        self.limit_resets = match (self.limit_resets, resets) { (Some(a), Some(b)) => Some(a.min(b)), (a, b) => a.or(b) };
         self
     }
 
@@ -340,7 +368,7 @@ pub fn enrich(agents: Vec<Agent>) -> Vec<Agent> {
                     let helpers = subagent_actions(&session, Duration::from_secs(30));
                     let count = helpers.len();
                     agent.subagent_actions = helpers;
-                    agent.with_subagents(count)
+                    agent.with_subagents(count).with_limit(session_limit(&session))
                 }
                 "codex" => { agent.action = recent_action(codex_transcript(&session).as_deref(), codex_action); agent }
                 "kiro" => { agent.action = recent_action(kiro_transcript(&session).as_deref(), kiro_action); agent }
@@ -368,6 +396,8 @@ pub struct BackgroundJob {
     pub needs: Option<String>,
     pub transcript: Option<String>,
     pub updated: SystemTime,
+    /// For a job stuck on the usage limit: when it resets (unix seconds).
+    pub resets: Option<i64>,
 }
 
 pub fn default_daemon_root() -> String {
@@ -417,16 +447,112 @@ pub fn background_jobs(within: Duration, live: Option<HashSet<String>>) -> HashM
         let Ok(job) = serde_json::from_slice::<Value>(&data) else { continue };
         let (Some(state), Some(cwd)) = (str_of(&job, "state"), str_of(&job, "originCwd").or_else(|| str_of(&job, "cwd"))) else { continue };
         let Some(updated) = str_of(&job, "updatedAt").and_then(parse_iso8601) else { continue };
-        if updated <= cutoff { continue; }
         let needs = str_of(&job, "needs").filter(|n| !n.trim().is_empty()).map(str::to_string);
-        by_cwd.entry(cwd.to_string()).or_default().push(BackgroundJob {
-            state: job_state(state, str_of(&job, "tempo"), needs.is_some()),
-            needs,
-            transcript: str_of(&job, "linkScanPath").map(str::to_string),
-            updated,
-        });
+        let transcript = str_of(&job, "linkScanPath").map(str::to_string);
+        let mut state = job_state(state, str_of(&job, "tempo"), needs.is_some());
+        let mut resets = None;
+        // A job stopped by the usage limit is trapped until it resets; once
+        // that time has passed it waits for a retry, which is a question again.
+        let said = [needs.as_deref(), str_of(&job, "detail")].into_iter().flatten().find(|t| is_limit_text(t)).map(str::to_string);
+        if let (true, Some(said)) = (state == "blocked", said) {
+            resets = transcript.as_deref().and_then(transcript_limit).flatten().or_else(|| resets_from_text(&said, chrono::Local::now()));
+            if resets.map(|r| r > unix_now()).unwrap_or(true) { state = "limited".into(); }
+        }
+        // A limit can last hours without the job writing anything: keep it until it resets.
+        if updated <= cutoff && !(state == "limited" && resets.is_some()) { continue; }
+        by_cwd.entry(cwd.to_string()).or_default().push(BackgroundJob { state, needs, transcript, updated, resets });
     }
     by_cwd
+}
+
+pub fn unix_now() -> i64 {
+    SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
+}
+
+/// Claude Code's usage-limit messages: "You've hit your session limit ·
+/// resets 2:20pm (…)", "Claude usage limit reached…", a job's "rate limited
+/// — wait and retry".
+pub fn is_limit_text(text: &str) -> bool {
+    let t = text.to_lowercase();
+    t.contains("rate limited") || (t.contains("limit") && (t.contains("hit your") || t.contains("limit reached")))
+}
+
+/// The reset time in "resets 2:20pm" (or "reset at 5pm", "resets 14:05"):
+/// its next occurrence in local time, as unix seconds.
+pub fn resets_from_text(text: &str, now: chrono::DateTime<chrono::Local>) -> Option<i64> {
+    use chrono::TimeZone;
+    let lower = text.to_lowercase();
+    let at = lower.find("resets ").map(|i| i + 7).or_else(|| lower.find("reset at ").map(|i| i + 9))?;
+    let rest = lower[at..].trim_start().trim_start_matches("at ").trim_start();
+    let clock: String = rest.chars().take_while(|c| c.is_ascii_digit() || *c == ':').collect();
+    if clock.is_empty() { return None; }
+    let after = rest[clock.len()..].trim_start();
+    let mut parts = clock.split(':');
+    let mut hour: u32 = parts.next()?.parse().ok()?;
+    let minute: u32 = parts.next().map(|m| m.parse().ok()).unwrap_or(Some(0))?;
+    if after.starts_with("pm") && hour < 12 { hour += 12; }
+    if after.starts_with("am") && hour == 12 { hour = 0; }
+    if hour > 23 || minute > 59 { return None; }
+    let today = now.date_naive().and_hms_opt(hour, minute, 0)?;
+    let mut when = chrono::Local.from_local_datetime(&today).earliest()?;
+    if when <= now { when += chrono::Duration::days(1); }
+    Some(when.timestamp())
+}
+
+/// Whether the tail of a Claude Code transcript ends on a usage limit, and
+/// when it resets: Claude Code writes the refusal as a synthetic assistant
+/// row with `"error":"rate_limit"` and `quotaLimits.resetsAt`. Anything the
+/// user or the agent writes after it means the session moved on.
+/// Some(None) is a limit whose reset time is unknown.
+pub fn transcript_limit(path: &str) -> Option<Option<i64>> {
+    let modified = file_modified(path)?;
+    let mut guard = TRANSCRIPT_LIMITS.lock().unwrap_or_else(|e| e.into_inner());
+    let cache = guard.get_or_insert_with(HashMap::new);
+    if let Some((when, limit)) = cache.get(path) { if *when == modified { return *limit; } }
+    let limit = file_tail(path, 131_072).and_then(|t| limit_in_tail(&t));
+    cache.insert(path.to_string(), (modified, limit));
+    limit
+}
+
+static TRANSCRIPT_LIMITS: Mutex<Option<HashMap<String, (SystemTime, Option<Option<i64>>)>>> = Mutex::new(None);
+
+pub fn limit_in_tail(tail: &str) -> Option<Option<i64>> {
+    for line in tail.lines().rev() {
+        if !(line.contains("\"assistant\"") || line.contains("\"user\"")) { continue; }
+        let Ok(row) = serde_json::from_str::<Value>(line) else { continue };
+        match str_of(&row, "type") {
+            Some("assistant") => {
+                let text: String = row.get("message").and_then(|m| m.get("content")).and_then(Value::as_array)
+                    .map(|c| c.iter().filter_map(|b| str_of(b, "text")).collect::<Vec<_>>().join(" "))
+                    .unwrap_or_default();
+                let api_error = row.get("isApiErrorMessage").and_then(Value::as_bool).unwrap_or(false);
+                if str_of(&row, "error") != Some("rate_limit") && !(api_error && is_limit_text(&text)) { return None; }
+                let resets = row.get("quotaLimits").and_then(|q| q.get("resetsAt")).and_then(Value::as_i64)
+                    .or_else(|| resets_from_text(&text, chrono::Local::now()));
+                return Some(resets);
+            }
+            Some("user") => return None,
+            _ => continue,
+        }
+    }
+    None
+}
+
+/// The usage limit a Claude Code session is stuck on, if it has not reset yet.
+pub fn session_limit(session: &str) -> Option<Option<i64>> {
+    let path = claude_transcript(session)?;
+    let limit = transcript_limit(&path)?;
+    if limit.map(|r| r <= unix_now()).unwrap_or(false) { return None; }
+    // An unknown reset time only counts for a few hours after the refusal.
+    if limit.is_none() && file_modified(&path)? < SystemTime::now().checked_sub(Duration::from_secs(6 * 3600))? { return None; }
+    Some(limit)
+}
+
+/// ~/.claude/projects/<project>/<session>.jsonl for a session id.
+pub fn claude_transcript(session: &str) -> Option<String> {
+    if session.starts_with('/') { return Some(session.to_string()); }
+    let dirs = std::fs::read_dir(home_dir().join(".claude/projects")).ok()?;
+    dirs.flatten().map(|d| d.path().join(format!("{session}.jsonl"))).find(|f| f.exists()).map(|f| f.to_string_lossy().to_string())
 }
 
 fn parse_iso8601(text: &str) -> Option<SystemTime> {
@@ -582,18 +708,20 @@ pub fn list_sessions() -> Vec<HerdrSession> {
 pub enum StatusFilter {
     All,
     Blocked,
+    Limited,
     Working,
     Idle,
     Done,
 }
 
 impl StatusFilter {
-    pub const ALL: [StatusFilter; 5] = [StatusFilter::All, StatusFilter::Blocked, StatusFilter::Working, StatusFilter::Idle, StatusFilter::Done];
+    pub const ALL: [StatusFilter; 6] = [StatusFilter::All, StatusFilter::Blocked, StatusFilter::Limited, StatusFilter::Working, StatusFilter::Idle, StatusFilter::Done];
 
     pub fn raw(self) -> &'static str {
         match self {
             StatusFilter::All => "all",
             StatusFilter::Blocked => "blocked",
+            StatusFilter::Limited => "limited",
             StatusFilter::Working => "working",
             StatusFilter::Idle => "idle",
             StatusFilter::Done => "done",
@@ -648,7 +776,7 @@ pub fn demo_agents(tick: usize) -> Vec<Agent> {
         ("claude", "Website", "working", "Construyendo la página de ajustes"),
         ("codex", "API service", ["working", "blocked", "done", "idle"][(tick / 10) % 4], "Revisando las pruebas"),
         ("kiro", "Mobile app", "blocked", "Esperando tu respuesta"),
-        ("claude", "Design system", "idle", "Listo para la próxima tarea"),
+        ("claude", "Design system", ["limited", "idle"][(tick / 12) % 2], "Listo para la próxima tarea"),
         ("gemini", "Documentation", "done", "Documentación actualizada"),
         ("codex", "Game engine", "working", "Ajustando el movimiento"),
     ];
@@ -663,6 +791,11 @@ pub fn demo_agents(tick: usize) -> Vec<Agent> {
             let mut agent = Agent::new(&format!("demo:{i}"), s.0, s.2, s.1, &tr(s.3), &cwd);
             agent.branch = branches[i].map(str::to_string);
             if i == 0 { agent.action = Some(["read", "forge", "brew", "summon", "plan", "type"][(tick / 8) % 6].to_string()); }
+            if agent.status == "limited" {
+                // Fixed for the whole run, so the countdown ticks down.
+                static DEMO_RESET: std::sync::OnceLock<i64> = std::sync::OnceLock::new();
+                agent.limit_resets = Some(*DEMO_RESET.get_or_init(|| unix_now() + 73 * 60 + 5));
+            }
             agent.subagent_actions = helpers[i].iter().map(|s| s.to_string()).collect();
             agent.with_subagents(subagents[i])
         })

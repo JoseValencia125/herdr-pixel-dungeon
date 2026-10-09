@@ -58,7 +58,10 @@ fn main() {
         match herdr::fetch_snapshot(&session) {
             Ok(agents) => {
                 println!("OK: {} agentes", agents.len());
-                for a in agents { println!("{} | {} | {} | {}", a.id, a.name, a.status, a.project); }
+                for a in agents {
+                    let left = a.limit_left(herdr::unix_now()).map(|s| format!(" | resets in {}", scene::countdown(s))).unwrap_or_default();
+                    println!("{} | {} | {} | {}{left}", a.id, a.name, a.status, a.project);
+                }
             }
             Err(error) => { eprintln!("{error}"); std::process::exit(1); }
         }

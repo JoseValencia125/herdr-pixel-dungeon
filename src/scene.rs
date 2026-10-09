@@ -28,6 +28,9 @@ const RED: Color32 = Color32::from_rgb(228, 59, 68);
 const GREEN: Color32 = Color32::from_rgb(99, 199, 77);
 const VIOLET: Color32 = Color32::from_rgb(181, 80, 136);
 const PINK: Color32 = Color32::from_rgb(245, 153, 204);
+/// The usage limit's colour.
+pub const LIMITED: Color32 = Color32::from_rgb(175, 82, 222);
+const IRON: Color32 = Color32::from_rgb(158, 153, 184);
 
 /// Rooms wrap like a flex row: as many columns as fit the width.
 pub fn columns_fitting(width: f32) -> usize {
@@ -54,8 +57,9 @@ pub struct RoomStyle {
     pub route: &'static [Pos2],
 }
 
-pub const STYLES: [RoomStyle; 5] = [
+pub const STYLES: [RoomStyle; 6] = [
     RoomStyle { status: "blocked", title: "ATENCIÓN", background: "room_blocked", color: Color32::from_rgb(255, 69, 58), bubble: None, spot: pos2(72.0, 64.0), roam: 8.0, lying: false, route: &[] },
+    RoomStyle { status: "limited", title: "ATRAPADO", background: "room_limited", color: LIMITED, bubble: None, spot: pos2(72.0, 58.0), roam: 0.0, lying: false, route: &[] },
     RoomStyle { status: "working", title: "TRABAJANDO", background: "room_working", color: Color32::from_rgb(255, 159, 10), bubble: None, spot: pos2(72.0, 34.0), roam: 0.0, lying: false,
                 route: &[pos2(72.0, 80.0), pos2(36.0, 74.0), pos2(36.0, 36.0)] },
     RoomStyle { status: "idle", title: "EN ESPERA", background: "room_idle", color: Color32::from_rgb(152, 152, 157), bubble: Some("z"), spot: pos2(63.0, 57.0), roam: 0.0, lying: true,
@@ -70,7 +74,7 @@ const DOOR: Pos2 = pos2(72.0, 88.0);
 const OUTSIDE: Pos2 = pos2(72.0, 112.0);
 
 pub fn style_for(status: &str) -> RoomStyle {
-    STYLES.iter().copied().find(|s| s.status == status).unwrap_or(STYLES[4])
+    STYLES.iter().copied().find(|s| s.status == status).unwrap_or(STYLES[STYLES.len() - 1])
 }
 
 /// Where each workshop station is in the room art, and which way a hero at
@@ -86,10 +90,19 @@ pub fn station(name: &str) -> Option<(Pos2, f32)> {
     }
 }
 
+/// Time left on a usage limit: 4:05, 1:13:05, or 2d 3h for weekly limits.
+pub fn countdown(seconds: i64) -> String {
+    let s = seconds.max(0);
+    if s >= 86_400 { format!("{}d {}h", s / 86_400, s / 3600 % 24) }
+    else if s >= 3600 { format!("{}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60) }
+    else { format!("{}:{:02}", s / 60, s % 60) }
+}
+
 pub fn agent_color(status: &str) -> Color32 {
     match status {
         "working" => Color32::from_rgb(255, 159, 10),
         "blocked" => Color32::from_rgb(255, 69, 58),
+        "limited" => LIMITED,
         "done" => Color32::from_rgb(48, 209, 88),
         _ => Color32::from_rgb(152, 152, 157),
     }
@@ -295,6 +308,7 @@ struct Mini {
 
 const WORKING_GLINTS: [Pos2; 9] = [pos2(52.0, 12.0), pos2(88.0, 20.0), pos2(119.0, 37.0), pos2(129.0, 41.0), pos2(76.0, 46.0), pos2(114.0, 71.0), pos2(26.0, 16.0), pos2(72.0, 8.0), pos2(124.0, 12.0)];
 const COINS: [Pos2; 14] = [pos2(16.0, 41.0), pos2(32.0, 66.0), pos2(46.0, 75.0), pos2(20.0, 81.0), pos2(64.0, 86.0), pos2(86.0, 89.0), pos2(116.0, 83.0), pos2(126.0, 41.0), pos2(127.0, 75.0), pos2(107.0, 46.0), pos2(26.0, 32.0), pos2(72.0, 8.0), pos2(20.0, 8.0), pos2(124.0, 8.0)];
+const CAGE_GLINTS: [Pos2; 6] = [pos2(60.0, 44.0), pos2(85.0, 50.0), pos2(58.0, 70.0), pos2(87.0, 68.0), pos2(72.0, 12.0), pos2(72.0, 30.0)];
 const RUIN_GLINTS: [Pos2; 5] = [pos2(21.0, 9.0), pos2(124.0, 9.0), pos2(112.0, 79.0), pos2(70.0, 28.0), pos2(14.0, 34.0)];
 
 /// One agent living in a room that reflects its state. Positions inside
@@ -314,6 +328,8 @@ pub struct Room {
     action: Option<String>,
     subagents: usize,
     subagent_actions: Vec<String>,
+    /// When the usage limit resets (unix seconds), for the countdown.
+    limit_resets: Option<i64>,
     clock: f32,
     routine_clock: f32,
     in_transition: bool,
@@ -356,6 +372,7 @@ impl Room {
             action: None,
             subagents: usize::MAX,
             subagent_actions: vec![],
+            limit_resets: None,
             clock: 0.0,
             routine_clock: 0.0,
             in_transition: false,
@@ -414,6 +431,7 @@ impl Room {
         self.activity = agent.activity.clone();
         self.place = agent.folder() + &agent.branch.as_ref().map(|b| format!(" · {b}")).unwrap_or_default();
         self.harness = harness_for(&agent.name);
+        self.limit_resets = agent.limit_resets;
         if agent.action != self.action {
             self.action = agent.action.clone();
             if self.style.status == "working" && agent.status == "working" && !self.in_transition {
@@ -499,6 +517,7 @@ impl Room {
         match self.style.status {
             "working" => { let from = self.style.spot; self.start_working(from); }
             "blocked" => self.start_blocked(),
+            "limited" => self.start_limited(),
             "done" => self.start_done(),
             "idle" => self.start_sleeping(),
             _ => self.start_wandering(),
@@ -575,6 +594,30 @@ impl Room {
         self.light(pos2(33.0, 33.0), 12.0, ORANGE, 0.1, 0.28, None);
         self.light(pos2(109.0, 33.0), 12.0, ORANGE, 0.1, 0.28, None);
         self.emit(EmitterKind::Brazier, 0.25, 0.15);
+    }
+
+    /// Usage limit: a cage drops from the ceiling on its chain and traps the
+    /// hero, who looks around and now and then rattles the bars; violet
+    /// light pulses over the sealed room and a countdown says when it resets.
+    fn start_limited(&mut self) {
+        self.pose = Pose::Idle(0.5);
+        self.light(pos2(33.0, 33.0), 12.0, LIMITED, 0.12, 0.3, None);
+        self.light(pos2(109.0, 33.0), 12.0, LIMITED, 0.12, 0.3, None);
+        self.light(self.style.spot, 26.0, LIMITED, 0.06, 0.2, Some(2.4));
+        self.emit(EmitterKind::Brazier, 0.3, 0.15);
+        self.emit(EmitterKind::Glints(&CAGE_GLINTS, PINK, 8.0), 0.7, 0.3);
+    }
+
+    /// The trapped hero's motion: the cage's drop (points above its rest,
+    /// only in the first moments), and the rattle (a sideways shake).
+    fn limited_motion(&self) -> (f32, f32, bool) {
+        let rt = self.routine_clock;
+        let drop = if rt < 0.45 { -110.0 * (1.0 - (rt / 0.45).powi(2)) } else { 0.0 };
+        let bounce = if (0.45..0.6).contains(&rt) { -3.0 * (std::f32::consts::PI * (rt - 0.45) / 0.15).sin() } else { 0.0 };
+        let p = (rt - 0.6).max(0.0) % 3.4;
+        let rattling = rt > 0.6 && p > 2.5;
+        let shake = if rattling { 1.6 * (p * 70.0).sin() } else { 0.0 };
+        (drop + bounce, shake, rattling)
     }
 
     /// Done: the hero jumps for joy in the middle of the treasure room,
@@ -709,6 +752,13 @@ impl Room {
             }
         }
         self.pose_from_runner();
+        if self.style.status == "limited" && !self.in_transition {
+            let (_, _, rattling) = self.limited_motion();
+            if rattling { self.set_pose(Pose::Work(0.08)); } else {
+                self.set_pose(Pose::Idle(0.5));
+                self.facing = if ((self.routine_clock / 1.7) as i32) % 2 == 0 { 1.0 } else { -1.0 };
+            }
+        }
         self.update_fx(dt);
     }
 
@@ -771,6 +821,7 @@ impl Room {
                     let p = rt % 0.36;
                     pos.y += if p < 0.16 { -12.0 * (p / 0.16) } else if p < 0.30 { -12.0 * (1.0 - (p - 0.16) / 0.14) } else { 0.0 };
                 }
+                "limited" => pos.x += self.limited_motion().1,
                 "done" => {
                     let p = rt % 2.21;
                     let hop = |q: f32| if q < 0.18 { -14.0 * (q / 0.18) } else if q < 0.34 { -14.0 * (1.0 - (q - 0.18) / 0.16) } else { 0.0 };
@@ -989,6 +1040,10 @@ impl Room {
             let wash = if q < 0.35 { lerp(0.02, 0.16, q / 0.35) } else { lerp(0.16, 0.02, (q - 0.35) / 0.45) };
             clipped.rect_filled(f, CornerRadius::ZERO, with_alpha(RED, wash));
         }
+        if style.status == "limited" && !self.in_transition {
+            let q = (std::f32::consts::TAU * t / 2.4).sin() * 0.5 + 0.5;
+            clipped.rect_filled(f, CornerRadius::ZERO, with_alpha(LIMITED, 0.03 + 0.07 * q));
+        }
         // Subagents behind the desk.
         let (hero_pos, _, book) = self.hero_view();
         let mini_tint = Color32::from_rgb(178, 178, 178);
@@ -1019,6 +1074,7 @@ impl Room {
                         let angle = if r < 0.12 { lerp(0.0, 0.12, r / 0.12) } else if r < 0.36 { lerp(0.12, -0.12, (r - 0.12) / 0.24) } else { lerp(-0.12, 0.0, (r - 0.36) / 0.12) };
                         draw_sprite(&clipped, assets.prop("alert"), pos2(hero_at.x, hero_at.y - HERO / 2.0 - 16.0), vec2(13.5 * scale, 25.5 * scale), false, -angle, Color32::WHITE);
                     }
+                    "limited" => self.draw_cage(&clipped, painter, origin, f, assets),
                     "done" => {
                         let arm = assets.arm(self.harness);
                         let r = t % 0.36;
@@ -1082,6 +1138,9 @@ impl Room {
             let bright = Color32::from_rgb(255, 51, 56);
             let dim = Color32::from_rgb(89, 13, 20);
             Stroke::new(3.0_f32, if (self.clock % 0.7) < 0.35 { bright } else { dim })
+        } else if style.status == "limited" && !self.in_transition {
+            let q = (std::f32::consts::TAU * self.clock / 2.4).sin() * 0.5 + 0.5;
+            Stroke::new(2.0_f32, blend(Color32::from_rgb(74, 30, 99), LIMITED, q))
         } else {
             Stroke::new(1.0_f32, with_alpha(style.color, 0.85))
         };
@@ -1098,6 +1157,37 @@ impl Room {
         if selected {
             painter.rect_stroke(cell.expand(2.0), CornerRadius::same(7), Stroke::new(2.0_f32, Color32::from_rgb(217, 242, 166)), egui::StrokeKind::Outside);
         }
+    }
+
+    /// The cage around the trapped hero, its chain up to the ceiling, and
+    /// under it the countdown to the reset (once the cage has landed).
+    fn draw_cage(&self, clipped: &Painter, painter: &Painter, origin: Pos2, f: Rect, assets: &Assets) {
+        let (drop, shake, _) = self.limited_motion();
+        let rest = pos2(origin.x + self.hero.x + shake, origin.y + self.hero.y - 2.0);
+        let center = pos2(rest.x, rest.y + drop);
+        let size = vec2(42.0, 48.0);
+        let top = center.y - size.y / 2.0;
+        // The chain: links alternating long and short, from the ceiling to the cage's ring.
+        let mut y = top + 1.0;
+        let mut long = true;
+        while y > f.min.y - 6.0 {
+            let link = if long { Rect::from_min_max(pos2(center.x - 1.0, y - 6.0), pos2(center.x + 1.0, y)) } else { Rect::from_min_max(pos2(center.x - 2.0, y - 4.0), pos2(center.x + 2.0, y)) };
+            clipped.rect_filled(link.expand(1.0), CornerRadius::ZERO, Color32::from_rgb(24, 20, 37));
+            clipped.rect_filled(link, CornerRadius::ZERO, IRON);
+            y -= if long { 6.0 } else { 4.0 };
+            long = !long;
+        }
+        draw_sprite(clipped, assets.prop("cage"), center, size, false, 0.0, Color32::WHITE);
+        if drop < 0.0 { return; }
+        let text = self.limit_resets.map(|r| countdown(r - crate::herdr::unix_now())).unwrap_or_else(|| "--:--".into());
+        let ink = blend(LIMITED, Color32::WHITE, 0.55);
+        let galley = painter.layout_no_wrap(text, FontId::monospace(12.0), ink);
+        let width = galley.size().x + 18.0;
+        let pill = Rect::from_center_size(pos2(rest.x - shake, rest.y + size.y / 2.0 + 12.0), vec2(width + 8.0, galley.size().y + 4.0));
+        clipped.rect_filled(pill, CornerRadius::same(3), Color32::from_black_alpha(200));
+        clipped.rect_stroke(pill, CornerRadius::same(3), Stroke::new(1.0_f32, with_alpha(LIMITED, 0.8)), egui::StrokeKind::Inside);
+        draw_sprite(clipped, assets.prop("hourglass"), pos2(pill.min.x + 10.0, pill.center().y), vec2(10.0, 10.0), false, 0.0, Color32::WHITE);
+        clipped.galley(pos2(pill.min.x + 20.0, pill.center().y - galley.size().y / 2.0), galley, ink);
     }
 
     fn draw_mini(&self, painter: &Painter, mini: &Mini, origin: Pos2, assets: &Assets, tint: Color32) {

@@ -139,7 +139,7 @@ pub fn run() {
     let cv = codex_view(codex_pending, Duration::from_secs(30), false);
     assert!(cv.status == "blocked" && cv.prompt.as_deref() == Some("corre los tests"));
     assert_eq!(codex_view(r#"{"type":"response_item","payload":{"type":"message","role":"assistant","content":[]}}"#, Duration::from_secs(30), false).status, "idle");
-    let job = BackgroundJob { state: "blocked".into(), needs: Some("¿Sí?".into()), transcript: Some("/t.jsonl".into()), updated: SystemTime::now() };
+    let job = BackgroundJob { state: "blocked".into(), needs: Some("¿Sí?".into()), transcript: Some("/t.jsonl".into()), updated: SystemTime::now(), resets: None };
     let asked = agent("q", "claude", "idle", "p", "a", "~").with_jobs(&[job]);
     assert!(asked.status == "blocked" && asked.question.as_deref() == Some("¿Sí?") && asked.question_transcript.as_deref() == Some("/t.jsonl"));
     let lines: Vec<String> = ["Bash(rm -rf build)", " Do you want to proceed?", "❯ 1. Yes", "  2. Yes, and don't ask again", "  3. No, and tell Claude what to do"].iter().map(|s| s.to_string()).collect();
@@ -199,8 +199,28 @@ pub fn run() {
     let subs = herdr_subscriptions(&["w2:p1".to_string(), "w1:p1".to_string()]);
     assert!(subs.last().and_then(|s| s.get("pane_id")).and_then(|v| v.as_str()) == Some("w2:p1") && subs.iter().any(|s| s.get("type").and_then(|v| v.as_str()) == Some("pane.closed")));
     assert!(herdr_error(br#"{"error":{"code":"agent_blocked","message":"blocked"},"id":"x"}"#).and_then(|e| e.code().map(str::to_string)).as_deref() == Some("agent_blocked") && herdr_error(b"oops").is_none());
+    // Usage limit: the refusal row Claude Code writes, its reset time, and the trapped state.
+    let refusal = r#"{"type":"assistant","message":{"content":[{"type":"text","text":"You've hit your session limit · resets 2:20pm (America/Santiago)"}]},"quotaLimits":{"status":"rejected","resetsAt":1790094600},"error":"rate_limit","isApiErrorMessage":true}"#;
+    assert_eq!(limit_in_tail(&format!("{}\n{refusal}", r#"{"type":"user","message":{"content":"hola"}}"#)), Some(Some(1790094600)), "Limit row not read");
+    assert_eq!(limit_in_tail(&format!("{refusal}\n{}", r#"{"type":"user","message":{"content":"sigue"}}"#)), None, "A later prompt ends the limit");
+    assert_eq!(limit_in_tail(r#"{"type":"assistant","message":{"content":[{"type":"text","text":"ok"}]}}"#), None);
+    assert!(is_limit_text("rate limited — wait and retry · You've hit your session limit") && is_limit_text("Claude usage limit reached.") && !is_limit_text("Done, under the limit"));
+    use chrono::TimeZone;
+    let noon = chrono::Local.with_ymd_and_hms(2026, 10, 9, 12, 0, 0).unwrap();
+    assert_eq!(resets_from_text("You've hit your session limit · resets 2:20pm (America/Santiago)", noon), Some(noon.timestamp() + 2 * 3600 + 20 * 60));
+    assert_eq!(resets_from_text("resets 11am", noon), Some(noon.timestamp() + 23 * 3600), "A past time means tomorrow");
+    assert!(resets_from_text("resets soon", noon).is_none() && resets_from_text("no time here", noon).is_none());
+    let trapped = |state: &str, resets| BackgroundJob { state: state.into(), needs: Some("rate limited".into()), transcript: None, updated: SystemTime::now(), resets };
+    let caged = agent("l", "claude", "blocked", "p", "", "~").with_jobs(&[trapped("limited", Some(5000)), trapped("limited", Some(4000))]);
+    assert!(caged.status == "limited" && caged.limit_resets == Some(4000) && caged.limit_left(3000) == Some(1000) && caged.limit_left(9000) == Some(0));
+    assert_eq!(agent("l", "claude", "idle", "p", "", "~").with_jobs(&[trapped("limited", None), trapped("blocked", None)]).status, "blocked", "A real question outranks the limit");
+    assert_eq!(agent("l", "claude", "working", "p", "", "~").with_jobs(&[trapped("limited", None)]).status, "working");
+    assert!(agent("s", "claude", "blocked", "p", "", "~").with_limit(Some(Some(7))).limit_resets == Some(7) && agent("s", "claude", "working", "p", "", "~").with_limit(Some(None)).status == "working");
+    assert!(crate::scene::countdown(65) == "1:05" && crate::scene::countdown(4385) == "1:13:05" && crate::scene::countdown(97_200) == "1d 3h" && crate::scene::countdown(-4) == "0:00");
+    assert!(StatusFilter::from_raw("limited") == StatusFilter::Limited && ids(filter_agents(&[caged.clone(), pool[1].clone()], StatusFilter::Limited, "")) == vec!["l"]);
+    assert_eq!(sort_agents(vec![agent("w", "x", "working", "p", "", "~"), caged, agent("b", "x", "blocked", "p", "", "~")]).iter().map(|a| a.id.as_str()).collect::<Vec<_>>(), vec!["b", "l", "w"]);
     let mut ordering = Monitor::new("default".into(), StatusFilter::All);
-    let urgent = agent("b", "claude", "working", "p", "", "~").with_jobs(&[BackgroundJob { state: "blocked".into(), needs: None, transcript: None, updated: SystemTime::now() }]);
+    let urgent = agent("b", "claude", "working", "p", "", "~").with_jobs(&[BackgroundJob { state: "blocked".into(), needs: None, transcript: None, updated: SystemTime::now(), resets: None }]);
     ordering.apply(vec![agent("a", "claude", "idle", "p", "", "~"), urgent]);
     assert_eq!(ordering.agents.iter().map(|a| a.id.as_str()).collect::<Vec<_>>(), vec!["b", "a"], "Attention must lead the grid");
     let daemon = std::env::temp_dir().join(format!("hpd-daemon-{}", std::process::id()));
@@ -211,7 +231,7 @@ pub fn run() {
     let _ = std::fs::remove_dir_all(&daemon);
     assert!(natural_cmp("w2:p1", "w10:p1") == std::cmp::Ordering::Less && natural_cmp("a", "A") == std::cmp::Ordering::Equal);
     assert_eq!(l10n::trf("Tú → {}: {}", &[&"a", &"b"]), l10n::text("Tú → {}: {}", &l10n::CURRENT).replacen("{}", "a", 1).replacen("{}", "b", 1));
-    println!("PASS: snapshot states, filtering, empty/error handling, monitor transitions, room art, heroes, subagent sessions, subagents keep agents busy, tool actions, translations, git branch, sound alerts + prefs, notifications + prefs, chat selection, question options, filters and search, connection notes, flex-wrap columns, sessions, agent creation, codex + kiro actions, herdr events, question extraction, Herdr error codes, live background jobs, natural order, {} bundled sprites", ROOM_FILES.len() + 1);
+    println!("PASS: snapshot states, filtering, empty/error handling, monitor transitions, room art, heroes, subagent sessions, subagents keep agents busy, tool actions, translations, git branch, sound alerts + prefs, notifications + prefs, chat selection, question options, filters and search, connection notes, flex-wrap columns, sessions, agent creation, codex + kiro actions, herdr events, question extraction, Herdr error codes, live background jobs, usage limits, natural order, {} bundled sprites", ROOM_FILES.len() + 1);
 }
 
 #[cfg(test)]

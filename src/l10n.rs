@@ -17,6 +17,9 @@ pub static TABLE: LazyLock<HashMap<&'static str, [&'static str; 4]>> = LazyLock:
         ("EN ESPERA", ["WAITING", "EN ATTENTE", "IN ATTESA", "EM ESPERA"]),
         ("LISTO", ["DONE", "TERMINÉ", "FATTO", "PRONTO"]),
         ("SIN ESTADO", ["NO STATUS", "SANS ÉTAT", "SENZA STATO", "SEM ESTADO"]),
+        ("ATRAPADO", ["TRAPPED", "PIÉGÉ", "INTRAPPOLATO", "PRESO"]),
+        ("Límite de sesión", ["Session limit", "Limite de session", "Limite di sessione", "Limite de sessão"]),
+        ("se reinicia en {}", ["resets in {}", "réinitialisation dans {}", "si azzera tra {}", "reinicia em {}"]),
         // Status labels
         ("Trabajando", ["Working", "Au travail", "Al lavoro", "Trabalhando"]),
         ("Necesita atención", ["Needs attention", "Demande ton attention", "Richiede attenzione", "Precisa de atenção"]),

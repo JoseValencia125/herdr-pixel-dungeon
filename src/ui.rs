@@ -20,6 +20,7 @@ const DIM: Color32 = Color32::from_rgb(150, 150, 155);
 pub fn tint(filter: StatusFilter) -> Color32 {
     match filter {
         StatusFilter::Blocked => Color32::from_rgb(255, 69, 58),
+        StatusFilter::Limited => crate::scene::LIMITED,
         StatusFilter::Working => Color32::from_rgb(255, 159, 10),
         StatusFilter::Idle => Color32::from_rgb(152, 152, 157),
         StatusFilter::Done => Color32::from_rgb(48, 209, 88),
@@ -31,6 +32,7 @@ pub fn filter_name(filter: StatusFilter) -> String {
     tr(match filter {
         StatusFilter::All => "Todos",
         StatusFilter::Blocked => "Necesita atención",
+        StatusFilter::Limited => "Límite de sesión",
         StatusFilter::Working => "Trabajando",
         StatusFilter::Idle => "En espera",
         StatusFilter::Done => "Listo",
@@ -96,7 +98,7 @@ pub fn hud(ui: &mut Ui, monitor: &mut Monitor, state: &mut HudState) -> HudActio
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
         ui.allocate_ui_with_layout(vec2(ui.available_width(), HUD_HEIGHT), egui::Layout::left_to_right(egui::Align::Center), |ui| {
-            ui.spacing_mut().item_spacing = vec2(4.0, 0.0);
+            ui.spacing_mut().item_spacing = vec2(if narrow { 3.0 } else { 4.0 }, 0.0);
             for filter in StatusFilter::ALL {
                 chip(ui, monitor, filter, narrow);
             }
@@ -137,6 +139,8 @@ pub fn hud(ui: &mut Ui, monitor: &mut Monitor, state: &mut HudState) -> HudActio
 fn chip(ui: &mut Ui, monitor: &mut Monitor, filter: StatusFilter, narrow: bool) {
     let count = if filter == StatusFilter::All { monitor.agents.len() } else { monitor.agents.iter().filter(|a| filter.admits(a)).count() };
     let on = monitor.filter == filter;
+    // The usage limit is rare: its chip shows up only while someone is trapped.
+    if filter == StatusFilter::Limited && count == 0 && !on { return; }
     // Agents asking for help keep the chip lit red whatever the filter.
     let alarm = filter == StatusFilter::Blocked && count > 0;
     let color = tint(filter);
@@ -149,16 +153,17 @@ fn chip(ui: &mut Ui, monitor: &mut Monitor, filter: StatusFilter, narrow: bool) 
         _ => format!("■ {count}"),
     };
     let galley = ui.painter().layout_no_wrap(text.clone(), FontId::monospace(fs(10.0)), ink);
-    let size = vec2(galley.size().x + 10.0, 18.0);
+    let size = vec2(galley.size().x + if narrow { 6.0 } else { 10.0 }, 18.0);
     let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
     ui.painter().rect_filled(rect, CornerRadius::same(3), fill);
     ui.painter().rect_stroke(rect, CornerRadius::same(3), Stroke::new(1.0_f32, edge), egui::StrokeKind::Inside);
-    if matches!(filter, StatusFilter::Working | StatusFilter::Idle | StatusFilter::Done) {
+    if matches!(filter, StatusFilter::Limited | StatusFilter::Working | StatusFilter::Idle | StatusFilter::Done) {
         // The square marker in the state's colour, then the count.
-        ui.painter().rect_filled(egui::Rect::from_center_size(pos2(rect.min.x + 8.0, rect.center().y), vec2(6.0, 6.0)), CornerRadius::ZERO, color);
-        ui.painter().text(pos2(rect.min.x + 14.0, rect.center().y), Align2::LEFT_CENTER, count.to_string(), FontId::monospace(fs(10.0)), ink);
+        let pad = if narrow { 3.0 } else { 5.0 };
+        ui.painter().rect_filled(egui::Rect::from_center_size(pos2(rect.min.x + pad + 3.0, rect.center().y), vec2(6.0, 6.0)), CornerRadius::ZERO, color);
+        ui.painter().text(pos2(rect.min.x + pad + 9.0, rect.center().y), Align2::LEFT_CENTER, count.to_string(), FontId::monospace(fs(10.0)), ink);
     } else {
-        ui.painter().galley(pos2(rect.min.x + 5.0, rect.center().y - galley.size().y / 2.0), galley, ink);
+        ui.painter().galley(pos2(rect.min.x + if narrow { 3.0 } else { 5.0 }, rect.center().y - galley.size().y / 2.0), galley, ink);
     }
     let response = response.on_hover_text(filter_name(filter));
     if response.clicked() {
@@ -263,7 +268,11 @@ pub fn chat_panel(ui: &mut Ui, monitor: &Monitor, agent: &Agent, state: &mut Cha
             let (dot, _) = ui.allocate_exact_size(vec2(8.0, 8.0), egui::Sense::hover());
             ui.painter().circle_filled(dot.center(), 4.0, color);
             ui.label(mono(&agent.name, 12.0).strong().color(Color32::WHITE));
-            ui.label(mono(&format!("{} · {}", agent.project, agent.label()), 11.0).color(DIM));
+            let mut status = agent.label();
+            if let Some(left) = agent.limit_left(crate::herdr::unix_now()).filter(|_| agent.status == "limited") {
+                status += &format!(" · {}", trf("se reinicia en {}", &[&crate::scene::countdown(left)]));
+            }
+            ui.label(mono(&format!("{} · {}", agent.project, status), 11.0).color(DIM));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if flat_button(ui, mono("x", 13.0).color(Color32::WHITE)).on_hover_text("Cerrar (esc)").clicked() { action.close = true; }
                 if !standalone && flat_button(ui, mono("↗", 13.0).color(Color32::WHITE)).on_hover_text(tr("Enfocar este agente en Herdr")).clicked() && !sending {
@@ -524,6 +533,7 @@ pub fn activity_log(ctx: &Context, events: &[GuildEvent]) -> bool {
 fn tone_color(tone: &str) -> Color32 {
     match tone {
         "blocked" => Color32::RED,
+        "limited" => crate::scene::LIMITED,
         "working" => Color32::from_rgb(255, 159, 10),
         "done" | "joined" => Color32::from_rgb(38, 153, 64),
         "left" | "idle" => Color32::GRAY,
