@@ -1333,10 +1333,17 @@ final class DungeonScene: SKScene {
         scrollBar.path = CGPath(roundedRect: CGRect(x: size.width - 5, y: y, width: 3, height: thumb), cornerWidth: 1.5, cornerHeight: 1.5, transform: nil)
     }
 
-    override func scrollWheel(with event: NSEvent) {
-        guard maxScroll > 0 else { return }
+    /// Wheel and trackpad scrolling. SpriteView does not hand scroll events
+    /// to the scene, so the dashboard forwards them from a local monitor;
+    /// returns false when the event is not over the rooms.
+    @discardableResult
+    func scroll(with event: NSEvent) -> Bool {
+        guard let view = view, view.window === event.window,
+              view.bounds.contains(view.convert(event.locationInWindow, from: nil)) else { return false }
+        guard maxScroll > 0 else { return true }
         let step = event.hasPreciseScrollingDeltas ? event.scrollingDeltaY : event.scrollingDeltaY * 12
         scrollTo(scroll - step, animated: false)
+        return true
     }
 
     /// Scroll just enough to show an agent's room whole.

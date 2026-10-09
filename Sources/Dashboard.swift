@@ -13,6 +13,7 @@ struct Dashboard: View {
     @State private var paused = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     @State private var hovering = false
     @State private var showLog = false
+    @State private var wheel: Any?
     var onMinimize: () -> Void = {}
     var onClose: () -> Void = {}
     var body: some View {
@@ -56,6 +57,11 @@ struct Dashboard: View {
         .preferredColorScheme(.dark)
         .onHover { hovering = $0 }
         .onAppear {
+            // Scrolling over the rooms moves them (SpriteView keeps scroll events to itself).
+            if wheel == nil {
+                let scene = world.scene
+                wheel = NSEvent.addLocalMonitorForEvents(matching:.scrollWheel) { event in scene.scroll(with:event) ? nil : event }
+            }
             // Clicking a room opens its chat panel; clicking it again closes it.
             world.scene.onSelect={id in monitor.selected = monitor.selected == id ? nil : id}
             world.scene.onFinish={id in
