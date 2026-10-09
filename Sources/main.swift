@@ -1,46 +1,139 @@
 import Cocoa
 import SwiftUI
 
+/// Borderless square panel that can still host SwiftUI/SpriteKit and accept clicks.
+final class WidgetPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
-    let monitor=Monitor()
-    var window: NSWindow!
+    let monitor = Monitor()
+    var window: WidgetPanel!
     var status: NSStatusItem!
+
+    /// Width of the widget, in points. Its height follows the number of agents.
+    let side: CGFloat = 460
+    /// Room above the first row (drag handle) and below the last one.
+    let topInset: CGFloat = 14
+    let bottomInset: CGFloat = 6
+    /// Margin from the screen edges.
+    let margin: CGFloat = 12
+
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let appMenu=NSMenu()
-        let root=NSMenuItem();appMenu.addItem(root)
-        let submenu=NSMenu();root.submenu=submenu
-        submenu.addItem(withTitle:"Acerca de Herdr Pixel Agents",action:#selector(about),keyEquivalent:"").target=self
-        submenu.addItem(.separator())
-        submenu.addItem(withTitle:"Salir de Herdr Pixel Agents",action:#selector(quit),keyEquivalent:"q").target=self
-        let editRoot=NSMenuItem(title:"Edición",action:nil,keyEquivalent:"");appMenu.addItem(editRoot)
-        let edit=NSMenu(title:"Edición");editRoot.submenu=edit
-        edit.addItem(withTitle:"Copiar",action:#selector(NSText.copy(_:)),keyEquivalent:"c")
-        edit.addItem(withTitle:"Pegar",action:#selector(NSText.paste(_:)),keyEquivalent:"v")
-        edit.addItem(withTitle:"Seleccionar todo",action:#selector(NSText.selectAll(_:)),keyEquivalent:"a")
-        NSApp.mainMenu=appMenu
-        let menu=NSMenu()
-        menu.addItem(withTitle:"Mostrar Herdr Pixel Agents",action:#selector(show),keyEquivalent:"m").target=self
-        menu.addItem(.separator())
-        menu.addItem(withTitle:"Salir",action:#selector(quit),keyEquivalent:"q").target=self
-        status=NSStatusBar.system.statusItem(withLength:NSStatusItem.variableLength);status.menu=menu
-        status.button?.image=NSImage(systemSymbolName:"square.stack.3d.up",accessibilityDescription:"Herdr Pixel Agents")
+        // Menu-bar only: no Dock icon, no app menu bar.
+        NSApp.setActivationPolicy(.accessory)
+
+        // Status bar item. Left click toggles the widget; right click shows a menu.
+        status = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        status.button?.image = NSImage(systemSymbolName: "square.stack.3d.up", accessibilityDescription: "Herdr Pixel Dungeon")
         status.button?.imagePosition = .imageLeading
-        monitor.onChange={ [weak self] in
-            guard let self=self else{return}
-            let count=self.monitor.agents.filter{$0.status == "blocked"}.count
-            self.status.button?.title=self.monitor.error == nil ? " \(self.monitor.agents.count)"+(count>0 ? " · \(count)!" : "") : " —"
-            self.status.button?.toolTip="Herdr Pixel Agents · \(count) necesitan atención"
+        status.button?.target = self
+        status.button?.action = #selector(statusClicked(_:))
+        status.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
+
+        monitor.onChange = { [weak self] in
+            guard let self = self else { return }
+            let count = self.monitor.agents.filter { $0.status == "blocked" }.count
+            self.status.button?.title = self.monitor.error == nil ? " \(self.monitor.agents.count)" + (count > 0 ? " · \(count)!" : "") : " —"
+            self.status.button?.toolTip = "Herdr Pixel Dungeon · \(count) necesitan atención"
+            self.fitHeight()
         }
-        window=NSWindow(contentRect:NSRect(x:0,y:0,width:1180,height:840),styleMask:[.titled,.closable,.miniaturizable,.resizable],backing:.buffered,defer:false)
-        window.title="Herdr Pixel Agents";window.contentView=NSHostingView(rootView:Dashboard(monitor:monitor));window.isReleasedWhenClosed=false;window.delegate=self;window.center()
-        if CommandLine.arguments.contains("--demo") {monitor.demo=true}
-        show();monitor.start()
+
+        // Square, borderless, floating widget window.
+        window = WidgetPanel(contentRect: NSRect(x: 0, y: 0, width: side, height: side),
+                             styleMask: [.borderless, .nonactivatingPanel],
+                             backing: .buffered, defer: false)
+        window.level = .floating
+        window.isReleasedWhenClosed = false
+        window.hasShadow = true
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.isMovableByWindowBackground = true
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        window.contentView = NSHostingView(rootView: Dashboard(monitor: monitor,
+                                                               onMinimize: { [weak self] in self?.window.orderOut(nil) },
+                                                               onClose: { NSApp.terminate(nil) }))
+        window.delegate = self
+        if let content = window.contentView {
+            content.wantsLayer = true
+            content.layer?.cornerRadius = 14
+            content.layer?.masksToBounds = true
+            content.layer?.backgroundColor = NSColor(red: 0.05, green: 0.06, blue: 0.065, alpha: 1).cgColor
+        }
+
+        if CommandLine.arguments.contains("--demo") { monitor.demo = true }
+        anchorToCorner()
+        window.orderFrontRegardless()
+        monitor.start()
     }
-    @objc func show(){NSApp.setActivationPolicy(.regular);window.makeKeyAndOrderFront(nil);NSApp.activate(ignoringOtherApps:true)}
-    @objc func quit(){NSApp.terminate(nil)}
-    @objc func about(){NSApp.orderFrontStandardAboutPanel(options:[.applicationName:"Herdr Pixel Agents",.credits:NSAttributedString(string:"Pixel art: o_lobster · https://o-lobster.itch.io/\nCC BY 4.0 (license included with asset pack).\nBased on Claude Dungeon by thousandsky2024. MIT.")])}
-    func windowWillClose(_ notification: Notification){NSApp.setActivationPolicy(.accessory)}
-    func applicationShouldHandleReopen(_ sender:NSApplication,hasVisibleWindows flag:Bool)->Bool{show();return true}
+
+    /// Height that shows every agent row (at least one), capped to the screen.
+    func targetHeight() -> CGFloat {
+        let rows = CGFloat(max(1, (monitor.agents.count + DungeonScene.columns - 1) / DungeonScene.columns))
+        let wanted = topInset + rows * AgentRow.height + (rows - 1) * DungeonScene.gap + bottomInset
+        let limit = (window.screen ?? NSScreen.main)?.visibleFrame.height ?? wanted
+        return min(wanted, limit - 2 * margin)
+    }
+
+    /// Grow or shrink the window vertically with the agent count, keeping its
+    /// top edge where the user put it.
+    func fitHeight() {
+        let height = targetHeight()
+        var frame = window.frame
+        guard abs(frame.height - height) > 0.5 else { return }
+        frame.origin.y = frame.maxY - height
+        frame.size.height = height
+        window.setFrame(frame, display: true, animate: window.isVisible)
+        window.invalidateShadow()
+    }
+
+    /// Place the widget in the top-right corner, just under the menu bar.
+    func anchorToCorner() {
+        guard let screen = NSScreen.main else { return }
+        let visible = screen.visibleFrame
+        let height = targetHeight()
+        let x = visible.maxX - side - margin
+        let y = visible.maxY - height - margin
+        window.setFrame(NSRect(x: x, y: y, width: side, height: height), display: true)
+    }
+
+    @objc func statusClicked(_ sender: NSStatusBarButton) {
+        let event = NSApp.currentEvent
+        if event?.type == .rightMouseUp {
+            showMenu()
+        } else {
+            toggle()
+        }
+    }
+
+    func showMenu() {
+        let menu = NSMenu()
+        menu.addItem(withTitle: "Mostrar / ocultar", action: #selector(toggle), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "Reposicionar en la esquina", action: #selector(reanchor), keyEquivalent: "").target = self
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "Acerca de Herdr Pixel Dungeon", action: #selector(about), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "Salir", action: #selector(quit), keyEquivalent: "q").target = self
+        status.menu = menu
+        status.button?.performClick(nil)
+        status.menu = nil // detach so left-click keeps toggling
+    }
+
+    @objc func toggle() {
+        if window.isVisible {
+            window.orderOut(nil)
+        } else {
+            window.orderFrontRegardless()
+        }
+    }
+
+    @objc func reanchor() { anchorToCorner(); window.orderFrontRegardless() }
+    @objc func show() { window.orderFrontRegardless() }
+    @objc func quit() { NSApp.terminate(nil) }
+    @objc func about() {
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.orderFrontStandardAboutPanel(options: [.applicationName: "Herdr Pixel Dungeon", .credits: NSAttributedString(string: "Pixel art: o_lobster · https://o-lobster.itch.io/\nCC BY 4.0 (license included with asset pack).\nBased on Claude Dungeon by thousandsky2024. MIT.")])
+    }
 }
 
 func selfTest() throws {
@@ -57,7 +150,18 @@ func selfTest() throws {
     let resource=Bundle.main.resourceURL!.appendingPathComponent("Sprites")
     let files=FileManager.default.enumerator(at:resource,includingPropertiesForKeys:nil)!.allObjects.compactMap{$0 as? URL}.filter{$0.pathExtension=="png"}
     precondition(files.count>20);for file in files{precondition(NSImage(contentsOf:file) != nil,"Unreadable asset: \(file.lastPathComponent)")}
-    print("PASS: snapshot states, filtering, empty/error handling, BFS walls, monitor transitions, \(files.count) bundled sprites")
+    let busy=Agent(id:"x",name:"claude",status:"idle",project:"p",activity:"a",cwd:"~").with(subagents:2);precondition(busy.status=="working" && busy.subagents==2)
+    precondition(Agent(id:"x",name:"claude",status:"blocked",project:"p",activity:"a",cwd:"~").with(subagents:1).status=="blocked")
+    let repo=FileManager.default.temporaryDirectory.appendingPathComponent("hpd-selftest-\(ProcessInfo.processInfo.processIdentifier)")
+    try FileManager.default.createDirectory(at:repo.appendingPathComponent(".git"),withIntermediateDirectories:true)
+    try FileManager.default.createDirectory(at:repo.appendingPathComponent("src"),withIntermediateDirectories:true)
+    try "ref: refs/heads/feature/x\n".write(to:repo.appendingPathComponent(".git/HEAD"),atomically:true,encoding:.utf8)
+    precondition(gitBranch(at:repo.appendingPathComponent("src").path)=="feature/x");try? FileManager.default.removeItem(at:repo)
+    precondition(Hero.harness(for:"claude")=="claude" && Hero.harness(for:"Codex CLI")=="codex" && Hero.harness(for:"opencode")=="hero")
+    let withSession=try decodeSnapshot(Data(#"{"result":{"snapshot":{"agents":[{"pane_id":"a","agent":"claude","agent_session":{"kind":"id","value":"s-1"}}]}}}"#.utf8));precondition(withSession[0].session=="s-1" && withSession[0].subagents==0)
+    precondition(NSImage(contentsOf:resource.appendingPathComponent("heroes/heroes.png"))?.size==NSSize(width:48,height:CGFloat(Hero.order.count*32)),"Hero sheet layout mismatch")
+    for style in RoomStyle.all{precondition(NSImage(contentsOf:resource.appendingPathComponent("rooms/\(style.background).png")) != nil,"Missing room art: \(style.background)")}
+    print("PASS: snapshot states, filtering, empty/error handling, BFS walls, monitor transitions, room art, heroes, subagent sessions, subagents keep agents busy, git branch, \(files.count) bundled sprites")
 }
 
 if CommandLine.arguments.contains("--self-test") {

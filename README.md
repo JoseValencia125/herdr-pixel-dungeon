@@ -1,4 +1,4 @@
-# Herdr Pixel Agents
+# Herdr Pixel Dungeon
 
 **A native macOS pixel-art guild for your live Herdr agents.**
 
@@ -13,33 +13,39 @@ Based on **[Claude Dungeon / claude-pixel-agent-web](https://github.com/thousand
 Requires macOS 13+, Xcode Command Line Tools (`xcode-select --install`) and [Herdr](https://herdr.dev) with `herdr api snapshot` support. Tested with Herdr 0.9.1.
 
 ```sh
-git clone https://github.com/JoseValencia125/herdr-pixel-agents.git
-cd herdr-pixel-agents
+git clone https://github.com/JoseValencia125/herdr-pixel-dungeon.git
+cd herdr-pixel-dungeon
 ./scripts/build.sh
-open 'build/Herdr Pixel Agents.app'
+open 'build/Herdr Pixel Dungeon.app'
 ```
 
 Optional installation:
 
 ```sh
 mkdir -p ~/Applications
-ditto 'build/Herdr Pixel Agents.app' "$HOME/Applications/Herdr Pixel Agents.app"
-open "$HOME/Applications/Herdr Pixel Agents.app"
+ditto 'build/Herdr Pixel Dungeon.app' "$HOME/Applications/Herdr Pixel Dungeon.app"
+open "$HOME/Applications/Herdr Pixel Dungeon.app"
 ```
 
 Uses only Apple frameworks; no third-party packages. The build produces a locally ad-hoc-signed app for your Mac's architecture. It is not Developer ID signed or notarized.
 
-Close the window to keep monitoring in the menu bar. Choose **Mostrar Herdr Pixel Agents** to reopen it or **Salir** to quit. Enable **Demo** to try fictional agents without Herdr. Live mode never inserts fictional agents.
+Close the window to keep monitoring in the menu bar. Choose **Mostrar Herdr Pixel Dungeon** to reopen it or **Salir** to quit. Enable **Demo** to try fictional agents without Herdr. Live mode never inserts fictional agents.
 
 ## States and rooms
 
 | Herdr state | Room | Hero |
 | --- | --- | --- |
-| `working` | Arena | Attacking |
-| `blocked` | Portal | Attention marker |
-| `idle` | Library | Waiting |
-| `done` | Tavern | Resting |
-| unknown | Sanctuary | Unknown |
+| `working` | Forge: lit furnace, anvil and sparks | Attacking |
+| `blocked` | Sealed door: chains, keyhole seal, empty pedestal | Attention marker |
+| `idle` | Inn room: bed, fireplace, moonlit window, sleeping cat | Waiting |
+| `done` | Treasure chamber: golden light, gem, open chest | Completion marker |
+| unknown | Foggy crossroads: three doors, broken signpost | Unknown |
+
+All five rooms are one shared dungeon room that changes with the state. The source is `art/dungeon_rooms.aseprite`, with one tagged frame per state.
+
+Each harness has its own classic hero, coloured after the tool's brand (no logos are reproduced): **claude** is a coral wizard, **codex** a monochrome knight, **kiro** a purple-hooded rogue with a ghost face, **gemini** a blue star cleric, and any other harness a green adventurer. Source: `art/heroes.aseprite`.
+
+**Subagents.** Herdr does not report subagents, so for Claude Code agents the app reads the transcripts Claude Code writes under `~/.claude/projects/<project>/<session>/subagents/`. It matches them by the session ID in Herdr's snapshot. A subagent counts as active while its transcript changed in the last 30 seconds. Active subagents appear as a small party of heroes under the agent, with a count. Other harnesses show no subagents.
 
 - Background Herdr queries every second, no overlapping reads, four-second timeout.
 - Native SpriteKit animations, crisp nearest-neighbor sprites and wall-aware cardinal BFS paths.
@@ -56,7 +62,7 @@ Activity means **the title reported by the terminal**, not an inferred summary. 
 Monitors the principal local session by default. For a named session/custom executable, launch directly:
 
 ```sh
-HERDR_SESSION=my-session HERDR_BIN=/absolute/path/to/herdr 'build/Herdr Pixel Agents.app/Contents/MacOS/HerdrPixelAgents'
+HERDR_SESSION=my-session HERDR_BIN=/absolute/path/to/herdr 'build/Herdr Pixel Dungeon.app/Contents/MacOS/HerdrPixelDungeon'
 ```
 
 Herdr discovery: `~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin`, then inherited `PATH`. GUI launches may have a different PATH from your shell. One session per app instance.
@@ -69,9 +75,9 @@ Read-only `herdr api snapshot` calls. No network listener, telemetry, transcript
 
 ```sh
 ./scripts/build.sh
-'build/Herdr Pixel Agents.app/Contents/MacOS/HerdrPixelAgents' --self-test
-'build/Herdr Pixel Agents.app/Contents/MacOS/HerdrPixelAgents' --diagnose
-open 'build/Herdr Pixel Agents.app' --args --demo
+'build/Herdr Pixel Dungeon.app/Contents/MacOS/HerdrPixelDungeon' --self-test
+'build/Herdr Pixel Dungeon.app/Contents/MacOS/HerdrPixelDungeon' --diagnose
+open 'build/Herdr Pixel Dungeon.app' --args --demo
 ```
 
 Self-tests cover snapshot states, invalid/empty replies, BFS, monitor transitions and bundled PNG decoding. `--diagnose` prints live agent data; review it before sharing publicly.
@@ -81,6 +87,6 @@ Self-tests cover snapshot states, invalid/empty replies, BFS, monitor transition
 - **[o_lobster](https://o-lobster.itch.io/)**: all bundled PNG characters, NPCs, props and backgrounds. **Another Metroidvania Asset Pack Vol. 1 v1.7**. **[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)** as stated in the [included original license](Resources/Licenses/o_lobster-original.txt). Frames are cropped, scaled and composed at runtime. [Source paths and hashes](Resources/Licenses/asset-manifest.json).
 - **[thousandsky2024 / Claude Dungeon Contributors](https://github.com/thousandsky2024/claude-pixel-agent-web)**: original dungeon concept and BFS adapted to Swift. MIT notice retained in [LICENSE](LICENSE).
 - **Herdr contributors**: [Herdr](https://github.com/herdrdev/herdr) and its local API. Herdr is installed separately.
-- **Herdr Pixel Agents contributors**: native adapter, UI and SpriteKit composition, MIT.
+- **Herdr Pixel Dungeon contributors**: native adapter, UI and SpriteKit composition, MIT. Original room backgrounds in `Resources/Sprites/rooms` and heroes in `Resources/Sprites/heroes` (sources in `art/`), MIT.
 
-**Code is MIT; o_lobster's assets remain CC BY 4.0.** This project does not claim ownership of the artwork. Independent adaptation; no endorsement or affiliation implied.
+**Code and the original rooms and heroes are MIT; o_lobster's assets remain CC BY 4.0.** This project does not claim ownership of the artwork. Independent adaptation; no endorsement or affiliation implied.

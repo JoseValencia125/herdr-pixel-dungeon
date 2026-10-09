@@ -5,12 +5,16 @@ import Darwin
 struct Agent: Identifiable, Equatable {
     let id: String
     let name: String
-    let status: String
+    var status: String
     let project: String
     let activity: String
     let cwd: String
+    var session: String? = nil    // agent_session id (Claude Code session UUID)
+    var subagents = 0             // subagents with recent transcript activity
+    var branch: String? = nil     // git branch of cwd, if it is a repository
+    var folder: String { (cwd as NSString).lastPathComponent }
     var label: String { ["working":"Trabajando", "blocked":"Necesita atención", "idle":"En espera", "done":"Terminó"][status] ?? "Sin estado" }
-    var color: Color { switch status { case "working": return Color(red: 0.7, green: 0.85, blue: 0.55); case "blocked": return .orange; case "done": return .cyan; case "idle": return .purple; default: return .gray } }
+    var color: Color { switch status { case "working": return .orange; case "blocked": return .indigo; case "done": return .yellow; case "idle": return .green; default: return .gray } }
     var rank: Int { ["blocked":0,"working":1,"idle":2,"done":3][status] ?? 4 }
 }
 
@@ -39,7 +43,8 @@ func decodeSnapshot(_ data: Data) throws -> [Agent] {
         unique[id] = Agent(id: id, name: name, status: status,
                           project: names[row["workspace_id"] as? String ?? ""] ?? URL(fileURLWithPath: cwd).lastPathComponent,
                           activity: row["terminal_title_stripped"] as? String ?? row["terminal_title"] as? String ?? "Sin título de actividad",
-                          cwd: (cwd as NSString).abbreviatingWithTildeInPath)
+                          cwd: (cwd as NSString).abbreviatingWithTildeInPath,
+                          session: (row["agent_session"] as? [String:Any])?["value"] as? String)
     }
     return unique.values.sorted { $0.rank == $1.rank ? $0.id.localizedStandardCompare($1.id) == .orderedAscending : $0.rank < $1.rank }
 }
@@ -64,7 +69,69 @@ func fetchSnapshot(session: String) throws -> [Agent] {
     process.waitUntilExit()
     timeout.cancel()
     guard process.terminationStatus == 0 else { throw MonitorError.message("Sin conexión con Herdr. Abre tu sesión; reintentamos automáticamente.") }
-    return try decodeSnapshot(data)
+    return try decodeSnapshot(data).map { agent in
+        var agent = agent
+        agent.branch = gitBranch(at: (agent.cwd as NSString).expandingTildeInPath)
+        guard let session = agent.session else { return agent }
+        return agent.with(subagents: activeSubagents(session: session))
+    }
+}
+
+/// Current git branch for a directory, read straight from .git/HEAD (no
+/// process launch). Handles worktrees, where .git is a file pointing at the
+/// real git dir. Detached HEADs show the short commit.
+func gitBranch(at path: String) -> String? {
+    let fm = FileManager.default
+    var dir = URL(fileURLWithPath: path)
+    while dir.path != "/" {
+        let dotGit = dir.appendingPathComponent(".git")
+        var isDir: ObjCBool = false
+        if fm.fileExists(atPath: dotGit.path, isDirectory: &isDir) {
+            var gitDir = dotGit
+            if !isDir.boolValue {
+                guard let text = try? String(contentsOf: dotGit, encoding: .utf8),
+                      let line = text.split(separator: "\n").first, line.hasPrefix("gitdir:") else { return nil }
+                let target = line.dropFirst("gitdir:".count).trimmingCharacters(in: .whitespaces)
+                gitDir = URL(fileURLWithPath: target, relativeTo: dir)
+            }
+            guard let head = try? String(contentsOf: gitDir.appendingPathComponent("HEAD"), encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines) else { return nil }
+            if head.hasPrefix("ref: refs/heads/") { return String(head.dropFirst("ref: refs/heads/".count)) }
+            return head.isEmpty ? nil : String(head.prefix(7))
+        }
+        dir.deleteLastPathComponent()
+    }
+    return nil
+}
+
+extension Agent {
+    /// An agent whose subagents are still running is busy, even if its own
+    /// pane reports idle.
+    func with(subagents count: Int) -> Agent {
+        var agent = self
+        agent.subagents = count
+        if count > 0 && agent.status == "idle" { agent.status = "working" }
+        return agent
+    }
+}
+
+/// Herdr does not report subagents, but Claude Code writes one transcript per
+/// subagent under ~/.claude/projects/<project>/<session>/subagents/. A
+/// subagent counts as active while its transcript was written recently.
+func activeSubagents(session: String, within seconds: TimeInterval = 30) -> Int {
+    let fm = FileManager.default
+    let projects = fm.homeDirectoryForCurrentUser.appendingPathComponent(".claude/projects")
+    guard let dirs = try? fm.contentsOfDirectory(at: projects, includingPropertiesForKeys: nil) else { return 0 }
+    let cutoff = Date().addingTimeInterval(-seconds)
+    for dir in dirs {
+        let folder = dir.appendingPathComponent(session).appendingPathComponent("subagents")
+        guard let files = try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.contentModificationDateKey]) else { continue }
+        return files.filter { file in
+            file.pathExtension == "jsonl" &&
+            ((try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast) > cutoff
+        }.count
+    }
+    return 0
 }
 
 struct GuildEvent: Identifiable {
@@ -101,6 +168,7 @@ final class Monitor: ObservableObject {
             for agent in next {
                 if let old = previous[agent.id] {
                     if old.status != agent.status { events.insert(GuildEvent(text: "\(agent.project) · \(agent.label)"), at: 0) }
+                    if agent.subagents > old.subagents { events.insert(GuildEvent(text: "\(agent.project) · \(agent.subagents) subagentes activos"), at: 0) }
                 } else { events.insert(GuildEvent(text: "\(agent.project) entró a la guild"), at: 0) }
             }
             for agent in agents where !ids.contains(agent.id) { events.insert(GuildEvent(text: "\(agent.project) salió de la guild"), at: 0) }
@@ -134,5 +202,11 @@ func demoAgents(tick: Int) -> [Agent] {
                  ("claude", "Design system", "idle", "Listo para la próxima tarea"),
                  ("gemini", "Documentation", "done", "Documentación actualizada"),
                  ("codex", "Game engine", "working", "Ajustando el movimiento")]
-    return specs.enumerated().map { i, s in Agent(id: "demo:\(i)", name: s.0, status: s.2, project: s.1, activity: s.3, cwd: "~/demo/\(s.1)") }
+    let subagents = [2, 0, 0, 0, 0, 5]
+    let branches: [String?] = ["main", "feature/tests", nil, "main", "docs", "physics"]
+    return specs.enumerated().map { i, s in
+        var agent = Agent(id: "demo:\(i)", name: s.0, status: s.2, project: s.1, activity: s.3, cwd: "~/demo/\(s.1.lowercased().replacingOccurrences(of: " ", with: "-"))")
+        agent.branch = branches[i]
+        return agent.with(subagents: subagents[i])
+    }
 }

@@ -8,4 +8,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: ./scripts/build.sh
-      - run: '"build/Herdr Pixel Agents.app/Contents/MacOS/HerdrPixelAgents" --self-test'
+      - run: '"build/Herdr Pixel Dungeon.app/Contents/MacOS/HerdrPixelDungeon" --self-test'

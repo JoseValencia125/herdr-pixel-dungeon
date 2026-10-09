@@ -1,13 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-<key>CFBundleExecutable</key><string>HerdrPixelAgents</string>
-<key>CFBundleIdentifier</key><string>io.github.josevalencia125.herdr-pixel-agents</string>
-<key>CFBundleName</key><string>Herdr Pixel Agents</string>
+<key>CFBundleExecutable</key><string>HerdrPixelDungeon</string>
+<key>CFBundleIdentifier</key><string>io.github.josevalencia125.herdr-pixel-dungeon</string>
+<key>CFBundleName</key><string>Herdr Pixel Dungeon</string>
 <key>CFBundleVersion</key><string>1</string>
 <key>CFBundleShortVersionString</key><string>1.0.0</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>NSHighResolutionCapable</key><true/>
-<key>NSHumanReadableCopyright</key><string>App: Herdr Pixel Agents contributors. Pixel art: o_lobster (CC BY 4.0). Based on Claude Dungeon (MIT).</string>
+<key>LSUIElement</key><true/>
+<key>NSHumanReadableCopyright</key><string>App: Herdr Pixel Dungeon contributors. Pixel art: o_lobster (CC BY 4.0). Based on Claude Dungeon (MIT).</string>
 </dict></plist>
