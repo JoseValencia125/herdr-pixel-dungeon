@@ -67,9 +67,27 @@ cd herdr-pixel-dungeon
 
 `cargo test` and `--self-test` run the checks; `--demo` shows fictional agents without Herdr.
 
-## Support
+## Support the Guild 🧪⚔️
 
-If the dungeon is useful to you, you can [sponsor the project on GitHub](https://github.com/sponsors/JoseValencia125). Sponsorships help pay for the time spent drawing new heroes and rooms and keeping up with Herdr releases.
+I build open-source tools for developers, including **Herdr Pixel Dungeon** and other experiments around AI agents, developer tooling, and pixel-art interfaces.
+
+If you enjoy the project and want to support its development, you can buy the guild a potion.
+
+Every contribution helps me keep building, experimenting, fixing bugs, and releasing new features.
+
+No subscriptions. No paywalls. Just a way to support open-source work. ❤️
+
+### 🧪 Small Potion — $3
+Buy the guild a potion.
+
+A small thank-you that helps keep the project alive and the agents adventuring.
+
+### 🧪✨ Greater Potion — $10
+Buy the guild a greater potion.
+
+For those who really enjoy the project and want to give development an extra boost.
+
+Thank you for supporting independent open-source development. ⚔️
 
 ## Credits and licenses
 
