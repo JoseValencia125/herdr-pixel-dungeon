@@ -1,0 +1,689 @@
+//! Keeps the agents current: a snapshot to bootstrap and reconcile, Herdr's
+//! event stream for changes the moment they happen, local enrichment every
+//! second, and the actions the chat panel and the summon sheet run on panes.
+//! Background work reports back through a channel the UI drains each frame.
+
+use crate::alerts::{alerts_for, AgentAlert};
+use crate::events::{HerdrStream, StreamMessage};
+use crate::herdr::*;
+use crate::l10n::{tr, trf};
+use serde_json::Value;
+use std::collections::HashMap;
+use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+/// One line of the activity log. `tone` picks its marker: an agent state
+/// (working, blocked, idle, done), "joined", "left", "subagents", "message"
+/// or "info".
+#[derive(Clone, Debug)]
+pub struct GuildEvent {
+    pub at: chrono::DateTime<chrono::Local>,
+    pub text: String,
+    pub tone: &'static str,
+}
+
+impl GuildEvent {
+    pub fn new(text: String, tone: &'static str) -> GuildEvent {
+        GuildEvent { at: chrono::Local::now(), text, tone }
+    }
+}
+
+type Fresh = Option<(Vec<Agent>, HashMap<String, String>)>;
+
+enum Inbox {
+    Refresh { generation: u64, result: Result<(Fresh, Vec<Agent>), MonitorError> },
+    Socket { generation: u64, path: Option<String>, panes: Vec<String>, was_up: bool },
+    Stream(u64, StreamMessage),
+    Sessions(Vec<HerdrSession>),
+    Log(GuildEvent),
+    Created { failure: Option<String>, waiting: Option<(String, String, String, String)>, log: Option<GuildEvent> },
+}
+
+struct PendingPrompt {
+    pane: String,
+    name: String,
+    project: String,
+    text: String,
+    tries: u32,
+    seen: bool,
+    next: Instant,
+}
+
+pub struct Monitor {
+    pub agents: Vec<Agent>,
+    pub error: Option<String>,
+    pub updated: Option<Instant>,
+    pub events: Vec<GuildEvent>,
+    pub demo: bool,
+    /// HUD state chip and search box.
+    pub filter: StatusFilter,
+    pub query: String,
+    /// The room the user clicked; its chat panel is open while set.
+    pub selected: Option<String>,
+    /// The "new agent" panel is open.
+    pub composing: bool,
+    /// The Herdr session watched.
+    pub session: String,
+    /// Herdr's sessions, for the menu (refreshed with each snapshot).
+    pub sessions: Vec<HerdrSession>,
+    /// Alerts since the last drain: sounds and notifications are the app's.
+    pub alerts: Vec<AgentAlert>,
+    /// Something the window chrome reacts to changed (agents, panels, filter).
+    pub changed: bool,
+
+    inbox: Receiver<Inbox>,
+    outbox: Sender<Inbox>,
+    wake: Arc<dyn Fn() + Send + Sync>,
+    busy: bool,
+    again: bool,
+    next_refresh: Instant,
+    tick: usize,
+    generation: u64,
+    // Herdr's view of the agents before local enrichment: from a snapshot,
+    // then kept current by the event stream.
+    base: Vec<Agent>,
+    names: HashMap<String, String>,
+    last_snapshot: Option<Instant>,
+    needs_snapshot: bool,
+    stream: Option<HerdrStream>,
+    stream_panes: Vec<String>,
+    stream_up: bool,
+    next_stream_try: Instant,
+    socket_path: Option<String>,
+    connecting: bool,
+    streams_made: u64,
+    pending_prompts: Vec<PendingPrompt>,
+}
+
+/// Snapshots double as a reconciliation while the stream is live.
+const RECONCILE_EVERY: Duration = Duration::from_secs(60);
+
+impl Monitor {
+    pub fn new(session: String, filter: StatusFilter) -> Monitor {
+        let (outbox, inbox) = channel();
+        Monitor {
+            agents: vec![],
+            error: None,
+            updated: None,
+            events: vec![],
+            demo: false,
+            filter,
+            query: String::new(),
+            selected: None,
+            composing: false,
+            session,
+            sessions: vec![],
+            alerts: vec![],
+            changed: false,
+            inbox,
+            outbox,
+            wake: Arc::new(|| {}),
+            busy: false,
+            again: false,
+            next_refresh: Instant::now(),
+            tick: 0,
+            generation: 0,
+            base: vec![],
+            names: HashMap::new(),
+            last_snapshot: None,
+            needs_snapshot: true,
+            stream: None,
+            stream_panes: vec![],
+            stream_up: false,
+            next_stream_try: Instant::now(),
+            socket_path: None,
+            connecting: false,
+            streams_made: 0,
+            pending_prompts: vec![],
+        }
+    }
+
+    /// Called by background threads when they have something for `poll`.
+    pub fn set_wake(&mut self, wake: Arc<dyn Fn() + Send + Sync>) {
+        self.wake = wake;
+    }
+
+    pub fn visible_agents(&self) -> Vec<Agent> {
+        filter_agents(&self.agents, self.filter, &self.query)
+    }
+
+    pub fn is_filtering(&self) -> bool {
+        self.filter != StatusFilter::All || !self.query.trim().is_empty()
+    }
+
+    /// The HUD shows once there are enough rooms to sift, or while a filter hides some.
+    pub fn shows_hud(&self) -> bool {
+        self.agents.len() >= 3 || self.is_filtering()
+    }
+
+    pub fn select(&mut self, id: Option<String>) {
+        if self.selected != id {
+            if id.is_some() { self.composing = false; }
+            self.selected = id;
+            self.changed = true;
+        }
+    }
+
+    pub fn set_composing(&mut self, on: bool) {
+        if self.composing != on {
+            if on { self.selected = None; }
+            self.composing = on;
+            self.changed = true;
+        }
+    }
+
+    pub fn set_filter(&mut self, filter: StatusFilter) {
+        if self.filter != filter { self.filter = filter; self.changed = true; }
+    }
+
+    pub fn set_query(&mut self, query: String) {
+        if self.query != query { self.query = query; self.changed = true; }
+    }
+
+    pub fn set_demo(&mut self, enabled: bool) {
+        self.generation += 1;
+        self.demo = enabled;
+        self.reset();
+    }
+
+    /// Watch another Herdr session, starting over with its agents.
+    pub fn set_session(&mut self, name: &str) {
+        if name == self.session { return; }
+        self.generation += 1;
+        self.session = name.to_string();
+        self.reset();
+    }
+
+    /// Drop the event stream and Herdr's cached view: the next refresh
+    /// starts over with a snapshot.
+    fn drop_stream(&mut self) {
+        if let Some(stream) = self.stream.take() { stream.stop(); }
+        self.stream_panes.clear();
+        self.stream_up = false;
+        self.connecting = false;
+        self.base.clear();
+        self.names.clear();
+        self.last_snapshot = None;
+        self.needs_snapshot = true;
+        self.next_stream_try = Instant::now();
+        self.socket_path = None;
+    }
+
+    fn reset(&mut self) {
+        self.drop_stream();
+        self.agents.clear();
+        self.events.clear();
+        self.updated = None;
+        self.error = None;
+        self.selected = None;
+        self.pending_prompts.clear();
+        self.changed = true;
+        self.refresh();
+    }
+
+    pub fn log(&mut self, text: String, tone: &'static str) {
+        self.events.insert(0, GuildEvent::new(text, tone));
+        self.events.truncate(40);
+    }
+
+    pub fn apply(&mut self, next: Vec<Agent>) {
+        // Sort last: background jobs and subagents can change a status after
+        // Herdr's, and whoever needs attention must lead the grid.
+        let next = sort_agents(next);
+        let previous: HashMap<String, Agent> = self.agents.iter().map(|a| (a.id.clone(), a.clone())).collect();
+        let ids: Vec<String> = next.iter().map(|a| a.id.clone()).collect();
+        if self.updated.is_some() {
+            let alerts = alerts_for(&previous, &next);
+            self.alerts.extend(alerts);
+        }
+        if self.updated.is_none() {
+            self.log(trf("Guild conectada · {} agentes", &[&next.len()]), "info");
+        } else {
+            for agent in &next {
+                if let Some(old) = previous.get(&agent.id) {
+                    if old.status != agent.status {
+                        let tone = match agent.status.as_str() { "working" => "working", "blocked" => "blocked", "idle" => "idle", "done" => "done", _ => "info" };
+                        self.log(format!("{} · {}", agent.project, agent.label()), tone);
+                    }
+                    if agent.subagents > old.subagents {
+                        self.log(trf("{} · {} subagentes activos", &[&agent.project, &agent.subagents]), "subagents");
+                    }
+                } else {
+                    self.log(trf("{} entró a la guild", &[&agent.project]), "joined");
+                }
+            }
+            let gone: Vec<String> = self.agents.iter().filter(|a| !ids.contains(&a.id)).map(|a| a.project.clone()).collect();
+            for project in gone { self.log(trf("{} salió de la guild", &[&project]), "left"); }
+        }
+        if self.agents != next { self.changed = true; }
+        self.agents = next;
+        self.updated = Some(Instant::now());
+        self.error = None;
+        if let Some(selected) = &self.selected {
+            if !ids.contains(selected) { self.selected = None; self.changed = true; }
+        }
+    }
+
+    /// Drain what the background threads sent and run the timers. Returns
+    /// true when something visible may have changed.
+    pub fn poll(&mut self) -> bool {
+        let mut touched = false;
+        while let Ok(message) = self.inbox.try_recv() {
+            touched = true;
+            match message {
+                Inbox::Refresh { generation, result } => {
+                    self.busy = false;
+                    if generation != self.generation { self.refresh(); continue; }
+                    match result {
+                        Ok((fresh, shown)) => {
+                            if let Some((agents, names)) = fresh {
+                                self.base = agents;
+                                self.names = names;
+                                self.last_snapshot = Some(Instant::now());
+                                self.needs_snapshot = false;
+                            }
+                            let demo = self.demo;
+                            self.apply(shown);
+                            if !demo { self.keep_stream(); }
+                        }
+                        Err(error) => {
+                            let text = error.text();
+                            if self.error.as_deref() != Some(&text) { self.changed = true; }
+                            self.error = Some(text);
+                            self.needs_snapshot = true;
+                        }
+                    }
+                    if self.again { self.again = false; self.refresh(); }
+                }
+                Inbox::Socket { generation, path, panes, was_up } => {
+                    self.connecting = false;
+                    self.socket_path = path.clone();
+                    if generation != self.generation || self.stream.is_some() { continue; }
+                    let Some(path) = path else {
+                        self.stream_up = false;
+                        self.next_stream_try = Instant::now() + Duration::from_secs(5);
+                        continue;
+                    };
+                    self.streams_made += 1;
+                    let stream = HerdrStream::new(&path, &panes, self.streams_made);
+                    let sender = self.outbox.clone();
+                    let wake = self.wake.clone();
+                    let (tx, rx) = channel::<(u64, StreamMessage)>();
+                    // Relay the stream's messages into the inbox, waking the UI.
+                    std::thread::spawn(move || {
+                        while let Ok((generation, message)) = rx.recv() {
+                            if sender.send(Inbox::Stream(generation, message)).is_err() { break; }
+                            wake();
+                        }
+                    });
+                    stream.start(tx);
+                    self.stream = Some(stream);
+                    self.stream_panes = panes;
+                    if !was_up { self.needs_snapshot = true; }
+                }
+                Inbox::Stream(generation, message) => {
+                    if self.stream.as_ref().map(|s| s.generation) != Some(generation) { continue; }
+                    match message {
+                        StreamMessage::Open => {
+                            self.stream_up = true;
+                            // Anything that changed while (re)subscribing is caught by a snapshot.
+                            self.needs_snapshot = true;
+                        }
+                        StreamMessage::Event(event) => self.handle(&event),
+                        StreamMessage::Close => {
+                            self.stream = None;
+                            self.stream_panes.clear();
+                            self.stream_up = false;
+                            self.needs_snapshot = true;
+                            self.socket_path = None; // look it up again: the server may have moved
+                            self.next_stream_try = Instant::now() + Duration::from_secs(3);
+                        }
+                    }
+                }
+                Inbox::Sessions(sessions) => {
+                    if self.sessions != sessions { self.sessions = sessions; self.changed = true; }
+                }
+                Inbox::Log(event) => { self.events.insert(0, event); self.events.truncate(40); }
+                Inbox::Created { failure, waiting, log } => {
+                    if let Some(log) = log { self.events.insert(0, log); self.events.truncate(40); }
+                    if let Some((pane, name, project, text)) = waiting {
+                        self.log(trf("{} espera tu respuesta; su prompt se enviará cuando esté listo.", &[&project]), "blocked");
+                        if text.is_empty() {
+                            self.select(Some(pane));
+                        } else {
+                            self.pending_prompts.push(PendingPrompt { pane, name, project, text, tries: 180, seen: false, next: Instant::now() });
+                        }
+                    }
+                    let _ = failure;
+                    self.refresh();
+                }
+            }
+        }
+        if Instant::now() >= self.next_refresh {
+            self.next_refresh = Instant::now() + Duration::from_secs(1);
+            self.refresh();
+            self.check_pending_prompts();
+        }
+        if self.changed { touched = true; }
+        touched
+    }
+
+    /// Every second: enrich Herdr's view from local files and show it.
+    /// Herdr itself is read with a snapshot only to bootstrap, after a
+    /// structural event, once a minute to reconcile, or every time while the
+    /// event stream is down (plain polling, as a fallback).
+    pub fn refresh(&mut self) {
+        if self.busy { self.again = true; return; }
+        self.busy = true;
+        let generation = self.generation;
+        let demo = self.demo;
+        let tick = self.tick;
+        let session = self.session.clone();
+        let reconcile = self.last_snapshot.map(|t| t.elapsed() > RECONCILE_EVERY).unwrap_or(true);
+        let snapshot = !demo && (self.needs_snapshot || !self.stream_up || reconcile);
+        let known = self.base.clone();
+        self.tick += 1;
+        let sender = self.outbox.clone();
+        let wake = self.wake.clone();
+        std::thread::spawn(move || {
+            let result = (|| {
+                if demo { return Ok((None, demo_agents(tick))); }
+                if snapshot {
+                    let data = run_herdr(&["api", "snapshot"], &session, Duration::from_secs(4))?;
+                    let (agents, names) = decode_snapshot_parts(&data)?;
+                    let shown = enrich(agents.clone());
+                    // The sessions list rides along with each snapshot, for the menu.
+                    let _ = sender.send(Inbox::Sessions(list_sessions()));
+                    return Ok((Some((agents, names)), shown));
+                }
+                Ok((None, enrich(known)))
+            })();
+            let _ = sender.send(Inbox::Refresh { generation, result });
+            wake();
+        });
+    }
+
+    /// Keep one event stream open on the current agent panes, reopening it
+    /// when they change and retrying a few seconds after it drops.
+    fn keep_stream(&mut self) {
+        let mut panes: Vec<String> = self.base.iter().map(|a| a.id.clone()).collect();
+        panes.sort();
+        if self.connecting || (self.stream.is_some() && panes == self.stream_panes) || Instant::now() < self.next_stream_try { return; }
+        self.connecting = true;
+        if let Some(stream) = self.stream.take() { stream.stop(); }
+        self.stream_panes = panes.clone();
+        let session = self.session.clone();
+        let generation = self.generation;
+        let was_up = self.stream_up;
+        let cached = self.socket_path.clone();
+        let sender = self.outbox.clone();
+        let wake = self.wake.clone();
+        std::thread::spawn(move || {
+            let path = cached.or_else(|| herdr_socket(&session));
+            let _ = sender.send(Inbox::Socket { generation, path, panes, was_up });
+            wake();
+        });
+    }
+
+    /// An event from Herdr: apply it and show it right away, or ask for a snapshot.
+    fn handle(&mut self, event: &Value) {
+        match apply_herdr_event(event, &mut self.base, &self.names) {
+            EventEffect::None => {}
+            EventEffect::Changed => self.refresh(),
+            EventEffect::Resync => { self.needs_snapshot = true; self.refresh(); }
+        }
+    }
+
+    // ---- Actions on an agent's pane
+
+    /// Run herdr commands off the UI thread; the receiver gets None or an
+    /// error message.
+    fn act(&self, commands: Vec<Vec<String>>) -> Receiver<Option<String>> {
+        let (tx, rx) = channel();
+        let session = self.session.clone();
+        let demo = self.demo;
+        let wake = self.wake.clone();
+        std::thread::spawn(move || {
+            let mut failure = None;
+            if !demo {
+                for args in &commands {
+                    let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+                    if run_herdr(&refs, &session, Duration::from_secs(6)).is_err() {
+                        failure = Some(tr("Herdr rechazó la acción. Revisa el panel del agente."));
+                        break;
+                    }
+                }
+            }
+            let _ = tx.send(failure);
+            wake();
+        });
+        rx
+    }
+
+    fn args(parts: &[&str]) -> Vec<String> {
+        parts.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// Type a message into the agent's chat and press Enter. Herdr refuses
+    /// `agent prompt` while a permission prompt is open, so a blocked agent
+    /// gets the raw keystrokes instead (e.g. an answer to its question).
+    pub fn send(&self, text: &str, agent: &Agent) -> Receiver<Option<String>> {
+        let message = text.trim().to_string();
+        let (tx, rx) = channel();
+        if message.is_empty() { let _ = tx.send(None); return rx; }
+        let inner = if agent.status == "blocked" {
+            self.act(vec![Monitor::args(&["pane", "send-text", &agent.id, &message]), Monitor::args(&["pane", "send-keys", &agent.id, "enter"])])
+        } else {
+            self.prompt(&agent.id, &message)
+        };
+        let log = self.outbox.clone();
+        let project = agent.project.clone();
+        std::thread::spawn(move || {
+            let failure = inner.recv().unwrap_or(None);
+            if failure.is_none() {
+                let _ = log.send(Inbox::Log(GuildEvent::new(trf("Tú → {}: {}", &[&project, &message]), "message")));
+            }
+            let _ = tx.send(failure);
+        });
+        rx
+    }
+
+    /// Press keys in the agent's pane: "enter" accepts a permission prompt's
+    /// highlighted option, "esc" rejects it or interrupts the agent.
+    pub fn press(&self, keys: &[String], agent: &Agent) -> Receiver<Option<String>> {
+        let mut args = Monitor::args(&["agent", "send-keys", &agent.id]);
+        args.extend(keys.iter().cloned());
+        self.act(vec![args])
+    }
+
+    /// End the agent's session by typing /exit in its chat. A working or
+    /// asking agent first gets esc, and a pause so the terminal does not read
+    /// esc + "/" as Alt+/.
+    pub fn finish(&self, agent: &Agent) -> Receiver<Option<String>> {
+        let exit = vec![Monitor::args(&["pane", "send-text", &agent.id, "/exit"]), Monitor::args(&["pane", "send-keys", &agent.id, "enter"])];
+        if agent.status != "working" && agent.status != "blocked" { return self.act(exit); }
+        let (tx, rx) = channel();
+        let first = self.act(vec![Monitor::args(&["agent", "send-keys", &agent.id, "esc"])]);
+        let session = self.session.clone();
+        let demo = self.demo;
+        std::thread::spawn(move || {
+            if let Some(failure) = first.recv().unwrap_or(None) { let _ = tx.send(Some(failure)); return; }
+            std::thread::sleep(Duration::from_millis(600));
+            let mut failure = None;
+            if !demo {
+                for args in &exit {
+                    let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+                    if run_herdr(&refs, &session, Duration::from_secs(6)).is_err() { failure = Some(tr("Herdr rechazó la acción. Revisa el panel del agente.")); break; }
+                }
+            }
+            let _ = tx.send(failure);
+        });
+        rx
+    }
+
+    /// Bring the agent's pane to the front inside Herdr.
+    pub fn focus(&self, agent: &Agent) -> Receiver<Option<String>> {
+        self.act(vec![Monitor::args(&["agent", "focus", &agent.id])])
+    }
+
+    /// Submit a prompt with `herdr agent prompt`. Herdr only reports
+    /// "stalled" or "unverifiable" when it cannot see the agent react within
+    /// five seconds; that is not proof the text was lost, so it counts as sent.
+    fn prompt(&self, target: &str, text: &str) -> Receiver<Option<String>> {
+        let (tx, rx) = channel();
+        let session = self.session.clone();
+        let demo = self.demo;
+        let (target, text) = (target.to_string(), text.to_string());
+        let wake = self.wake.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(if demo { None } else { prompt_failure(&session, &target, &text) });
+            wake();
+        });
+        rx
+    }
+
+    /// Start a new agent: a Herdr workspace in `folder` (its root pane is a
+    /// fresh shell), `herdr agent start` of `kind` in it, then the first
+    /// prompt if there is one. It shows up in the dungeon with the next
+    /// snapshot. The receiver gets None or an error message.
+    pub fn create(&self, kind: &str, folder: &str, prompt: &str) -> Receiver<Option<String>> {
+        let (tx, rx) = channel();
+        let session = self.session.clone();
+        let demo = self.demo;
+        let path = expand_home(folder);
+        let label = std::path::Path::new(&path).file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
+        let name = agent_name(kind, &label);
+        let text = prompt.trim().to_string();
+        let kind = kind.to_string();
+        let sender = self.outbox.clone();
+        let wake = self.wake.clone();
+        std::thread::spawn(move || {
+            let mut waiting_pane: Option<String> = None; // started, but stopped at a startup question
+            let failure: Option<String> = if demo {
+                None
+            } else {
+                (|| -> Result<(), MonitorError> {
+                    if !std::fs::metadata(&path).map(|m| m.is_dir()).unwrap_or(false) {
+                        return Err(MonitorError::Message(tr("La carpeta no existe.")));
+                    }
+                    let created = run_herdr(&["workspace", "create", "--cwd", &path, "--label", &label, "--no-focus"], &session, Duration::from_secs(8))?;
+                    let pane = root_pane(&created).ok_or_else(|| MonitorError::Message(tr("Herdr no devolvió el panel nuevo.")))?;
+                    match run_herdr(&["agent", "start", &name, "--kind", &kind, "--pane", &pane, "--timeout", "60000"], &session, Duration::from_secs(65)) {
+                        Ok(_) => {}
+                        Err(e) if e.code() == Some("agent_not_ready") => waiting_pane = Some(pane.clone()),
+                        Err(_) => return Err(MonitorError::Message(trf("{} no arrancó. Revisa que esté instalado.", &[&kind]))),
+                    }
+                    if waiting_pane.is_none() && !text.is_empty() {
+                        match run_herdr(&["agent", "prompt", &name, &text], &session, Duration::from_secs(10)) {
+                            Ok(_) => {}
+                            Err(e) if matches!(e.code(), Some("agent_prompt_stalled" | "agent_prompt_unverifiable")) => {}
+                            Err(e) if e.code() == Some("agent_blocked") => waiting_pane = Some(pane),
+                            Err(_) => return Err(MonitorError::Message(tr("El agente arrancó, pero no recibió el prompt."))),
+                        }
+                    }
+                    Ok(())
+                })()
+                .err()
+                .map(|e| e.text())
+            };
+            let log = failure.is_none().then(|| GuildEvent::new(trf("Invocaste a {} en {}", &[&kind, &label]), "joined"));
+            let waiting = waiting_pane.map(|pane| (pane, name.clone(), label.clone(), text.clone()));
+            let _ = sender.send(Inbox::Created { failure: failure.clone(), waiting, log });
+            let _ = tx.send(failure);
+            wake();
+        });
+        rx
+    }
+
+    /// A new agent stopped at a startup question (trusting the folder, a
+    /// login…): open its chat so it can be answered, and send the first
+    /// prompt once it is idle. Gives up after three minutes.
+    fn check_pending_prompts(&mut self) {
+        let now = Instant::now();
+        let mut keep = vec![];
+        let mut logs: Vec<GuildEvent> = vec![];
+        let mut select: Option<String> = None;
+        let mut sends: Vec<(String, String, String)> = vec![];
+        for mut pending in std::mem::take(&mut self.pending_prompts) {
+            if now < pending.next { keep.push(pending); continue; }
+            pending.next = now + Duration::from_secs(1);
+            if pending.tries == 0 {
+                logs.push(GuildEvent::new(trf("{} no quedó listo; su prompt no se envió.", &[&pending.project]), "left"));
+                continue;
+            }
+            pending.tries -= 1;
+            let status = self.agents.iter().find(|a| a.id == pending.pane).map(|a| a.status.clone());
+            if status.is_some() && !pending.seen { pending.seen = true; select = Some(pending.pane.clone()); }
+            match status.as_deref() {
+                Some("idle") | Some("done") => { sends.push((pending.name.clone(), pending.text.clone(), pending.project.clone())); continue; }
+                None if pending.seen => continue, // the pane went away
+                _ => keep.push(pending),
+            }
+        }
+        self.pending_prompts = keep;
+        for log in logs { self.events.insert(0, log); }
+        self.events.truncate(40);
+        if let Some(pane) = select { self.select(Some(pane)); }
+        for (name, text, project) in sends {
+            let rx = self.prompt(&name, &text);
+            let sender = self.outbox.clone();
+            std::thread::spawn(move || {
+                let failure = rx.recv().unwrap_or(None);
+                let event = if failure.is_none() {
+                    GuildEvent::new(trf("Tú → {}: {}", &[&project, &text]), "message")
+                } else {
+                    GuildEvent::new(trf("{} no recibió su prompt.", &[&project]), "left")
+                };
+                let _ = sender.send(Inbox::Log(event));
+            });
+        }
+    }
+
+    /// The last non-blank lines of the agent's terminal, so a question can be
+    /// answered without switching windows.
+    pub fn tail(&self, agent: &Agent, lines: usize) -> Receiver<Vec<String>> {
+        let (tx, rx) = channel();
+        let session = self.session.clone();
+        let demo = self.demo;
+        let agent = agent.clone();
+        let wake = self.wake.clone();
+        std::thread::spawn(move || {
+            // A background job asking something: its whole question, options included.
+            if !demo && agent.status == "blocked" {
+                if let Some(path) = &agent.question_transcript {
+                    if let Some(message) = file_tail(path, 131_072).and_then(|t| last_assistant_text(&t)) {
+                        let rows = question_lines(&message, agent.question.as_deref());
+                        if !rows.is_empty() { let _ = tx.send(rows); wake(); return; }
+                    }
+                }
+            }
+            let text = if demo {
+                if agent.status == "blocked" {
+                    "● Bash(rm -rf build && make)\n  Do you want to proceed?\n❯ 1. Yes\n  2. Yes, and don't ask again\n  3. No, and tell Claude what to do".to_string()
+                } else {
+                    format!("● {}\n  ⎿ Leyendo archivos del proyecto…", agent.activity)
+                }
+            } else {
+                run_herdr(&["agent", "read", &agent.id, "--source", "recent", "--lines", "60", "--format", "text"], &session, Duration::from_secs(4))
+                    .map(|d| String::from_utf8_lossy(&d).to_string())
+                    .unwrap_or_default()
+            };
+            let rows = meaningful_lines(&text);
+            let keep = if agent.status == "blocked" { 12 } else { lines };
+            let start = rows.len().saturating_sub(keep);
+            let _ = tx.send(rows[start..].to_vec());
+            wake();
+        });
+        rx
+    }
+}
+
+fn prompt_failure(session: &str, target: &str, text: &str) -> Option<String> {
+    match run_herdr(&["agent", "prompt", target, text], session, Duration::from_secs(10)) {
+        Ok(_) => None,
+        Err(e) if matches!(e.code(), Some("agent_prompt_stalled" | "agent_prompt_unverifiable")) => None,
+        Err(e) if e.code() == Some("agent_blocked") => Some(tr("El agente está esperando una respuesta; contéstale primero.")),
+        Err(_) => Some(tr("Herdr rechazó la acción. Revisa el panel del agente.")),
+    }
+}

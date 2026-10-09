@@ -1,0 +1,70 @@
+//! Preferences, kept in a JSON file in the user's config folder
+//! (~/Library/Application Support on macOS, ~/.config on Linux), so muting,
+//! filters, the window's place and the rest survive relaunches.
+
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Prefs {
+    pub sound_enabled: bool,
+    pub sound_needs_help: bool,
+    pub sound_finished: bool,
+    pub notify_enabled: bool,
+    pub notify_needs_help: bool,
+    pub notify_finished: bool,
+    pub filter: String,
+    pub session: Option<String>,
+    pub columns: usize,
+    pub rows: usize,
+    pub on_top: bool,
+    /// The window's top-right corner, in screen points.
+    pub top_right: Option<(f32, f32)>,
+    pub create_kind: String,
+    pub create_folder: String,
+    #[serde(skip)]
+    pub path: Option<PathBuf>,
+}
+
+impl Default for Prefs {
+    fn default() -> Prefs {
+        Prefs {
+            sound_enabled: true,
+            sound_needs_help: true,
+            sound_finished: true,
+            notify_enabled: true,
+            notify_needs_help: true,
+            notify_finished: false,
+            filter: "all".into(),
+            session: None,
+            columns: 2,
+            rows: 4,
+            on_top: true,
+            top_right: None,
+            create_kind: "claude".into(),
+            create_folder: String::new(),
+            path: None,
+        }
+    }
+}
+
+impl Prefs {
+    pub fn default_path() -> PathBuf {
+        dirs::config_dir().unwrap_or_else(std::env::temp_dir).join("herdr-pixel-dungeon").join("settings.json")
+    }
+
+    pub fn load(path: PathBuf) -> Prefs {
+        let mut prefs = std::fs::read(&path).ok().and_then(|d| serde_json::from_slice::<Prefs>(&d).ok()).unwrap_or_default();
+        prefs.columns = prefs.columns.max(1);
+        prefs.rows = prefs.rows.max(1);
+        prefs.path = Some(path);
+        prefs
+    }
+
+    pub fn save(&self) {
+        let Some(path) = &self.path else { return };
+        if let Some(dir) = path.parent() { let _ = std::fs::create_dir_all(dir); }
+        if let Ok(text) = serde_json::to_string_pretty(self) { let _ = std::fs::write(path, text); }
+    }
+}

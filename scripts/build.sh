@@ -1,16 +1,28 @@
 #!/bin/bash
+# Build the release binary; on macOS also assemble a .app bundle (so the app
+# is menu-bar only, with no Dock icon) under build/.
 set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-APP_DIR="$PROJECT_DIR/build/Herdr Pixel Dungeon.app"
-rm -rf "$APP_DIR/Contents/Resources"   # start clean so removed assets never linger
-mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
-xcrun swiftc -swift-version 5 -O -target "$(uname -m)-apple-macosx13.0" \
-  "$PROJECT_DIR"/Sources/*.swift -o "$APP_DIR/Contents/MacOS/HerdrPixelDungeon" \
-  -framework Cocoa -framework SwiftUI -framework SpriteKit
-cp "$PROJECT_DIR/Resources/Info.plist" "$APP_DIR/Contents/Info.plist"
-ditto "$PROJECT_DIR/Resources/Sprites" "$APP_DIR/Contents/Resources/Sprites"
-ditto "$PROJECT_DIR/Resources/Licenses" "$APP_DIR/Contents/Resources/Licenses"
-cp "$PROJECT_DIR/LICENSE" "$APP_DIR/Contents/Resources/Licenses/APP-MIT.txt"
-cp "$PROJECT_DIR/NOTICE.md" "$APP_DIR/Contents/Resources/Licenses/NOTICE.md"
-codesign --force --deep --sign - "$APP_DIR"
-echo "Built: $APP_DIR"
+cd "$PROJECT_DIR"
+export PATH="$HOME/.cargo/bin:$PATH"
+cargo build --release
+BIN="$PROJECT_DIR/target/release/herdr-pixel-dungeon"
+mkdir -p "$PROJECT_DIR/build"
+if [ "$(uname)" = "Darwin" ]; then
+  APP_DIR="$PROJECT_DIR/build/Herdr Pixel Dungeon.app"
+  rm -rf "$APP_DIR"
+  mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources/Licenses"
+  cp "$BIN" "$APP_DIR/Contents/MacOS/herdr-pixel-dungeon"
+  cp "$PROJECT_DIR/Resources/Info.plist" "$APP_DIR/Contents/Info.plist"
+  cp "$PROJECT_DIR/Resources/Icon/icon.icns" "$APP_DIR/Contents/Resources/icon.icns"
+  cp "$PROJECT_DIR/Resources/Licenses/"* "$APP_DIR/Contents/Resources/Licenses/"
+  cp "$PROJECT_DIR/LICENSE" "$APP_DIR/Contents/Resources/Licenses/APP-MIT.txt"
+  cp "$PROJECT_DIR/NOTICE.md" "$APP_DIR/Contents/Resources/Licenses/NOTICE.md"
+  codesign --force --deep --sign - "$APP_DIR"
+  echo "Built: $APP_DIR"
+else
+  cp "$BIN" "$PROJECT_DIR/build/herdr-pixel-dungeon"
+  cp "$PROJECT_DIR/Resources/Icon/icon_256.png" "$PROJECT_DIR/build/herdr-pixel-dungeon.png"
+  cp "$PROJECT_DIR/Resources/herdr-pixel-dungeon.desktop" "$PROJECT_DIR/build/"
+  echo "Built: $PROJECT_DIR/build/herdr-pixel-dungeon (with .desktop and icon)"
+fi

@@ -6,6 +6,10 @@ All code and pixel art in this repository are original work, copyright (c) 2026 
 
 The room backgrounds (Resources/Sprites/rooms) and the heroes (Resources/Sprites/heroes, one per harness) were drawn for this project in Aseprite with the Endesga-32 palette. Their sources are in art/. Hero colours are inspired by each tool's branding; no logos are reproduced, and no affiliation is implied.
 
+## Dependencies
+
+The app is written in Rust and links MIT/Apache-2.0 crates (egui/eframe, tray-icon, notify-rust, rodio, rfd, auto-launch and their dependencies); `cargo tree` lists them. egui bundles the Ubuntu (UFL), Hack (MIT) and Noto Emoji (OFL) fonts.
+
 ## Inspiration
 
 Inspired by [Claude Dungeon / claude-pixel-agent-web](https://github.com/thousandsky2024/claude-pixel-agent-web) by thousandsky2024, which first pictured coding agents as dungeon heroes. No code or artwork from that project is included.

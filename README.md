@@ -1,39 +1,48 @@
+<p align="center"><img src="Resources/Icon/icon_256.png" width="128" alt="Herdr Pixel Dungeon icon: a knight's helm on a dungeon tile"></p>
+
 # Herdr Pixel Dungeon
 
-**A native macOS pixel-art guild for your live Herdr agents.**
+**A native pixel-art guild for your live Herdr agents, for macOS and Linux.**
 
-Built in **Swift, SwiftUI, AppKit and SpriteKit**. Each agent is an animated hero in a dungeon room that changes with its real Herdr status. Lives in a desktop window and your menu bar. No browser, WebView, Node.js, account or server required.
+Written in **Rust** on `egui`/`eframe`, with a status item in the menu bar or system tray. Each agent is an animated hero in a dungeon room that changes with its real Herdr status. Lives in a small floating window. No browser, WebView, Node.js, account or server required.
 
 Created by **Nacho Valencia**. All pixel art is original, drawn in Aseprite for this project. Inspired by **[Claude Dungeon](https://github.com/thousandsky2024/claude-pixel-agent-web)** by [thousandsky2024](https://github.com/thousandsky2024).
 
-<p align="center">
-  <img src="docs/media/demo.gif" width="460" alt="The widget in demo mode: six agents working, asking for attention, waiting and done">
-</p>
+## Download
 
-<p align="center"><a href="docs/media/demo.mp4">Watch the full demo video</a> · <a href="docs/media/widget.png">Full-size screenshot</a></p>
+Prebuilt binaries for macOS (`.app`, zipped) and Linux (x86_64 tarball with a `.desktop` entry and icon) are on the [Releases](https://github.com/JoseValencia125/herdr-pixel-dungeon/releases) page. The macOS app is ad-hoc signed, not notarized: the first time, right-click it and choose Open.
 
 ## Build and open
 
-Requires macOS 13+, Xcode Command Line Tools (`xcode-select --install`) and [Herdr](https://herdr.dev) with `herdr api snapshot` support. Tested with Herdr 0.9.1.
+Requires [Rust](https://rustup.rs) (stable) and [Herdr](https://herdr.dev) with `herdr api snapshot` support. Tested with Herdr 0.9.1.
 
 ```sh
 git clone https://github.com/JoseValencia125/herdr-pixel-dungeon.git
 cd herdr-pixel-dungeon
 ./scripts/build.sh
-open 'build/Herdr Pixel Dungeon.app'
 ```
 
-Optional installation:
+On **macOS** that produces `build/Herdr Pixel Dungeon.app` (a locally ad-hoc-signed bundle, so the app is menu-bar only with no Dock icon; it is not Developer ID signed or notarized):
 
 ```sh
-mkdir -p ~/Applications
-ditto 'build/Herdr Pixel Dungeon.app' "$HOME/Applications/Herdr Pixel Dungeon.app"
-open "$HOME/Applications/Herdr Pixel Dungeon.app"
+open 'build/Herdr Pixel Dungeon.app'
+# optional installation
+mkdir -p ~/Applications && ditto 'build/Herdr Pixel Dungeon.app' "$HOME/Applications/Herdr Pixel Dungeon.app"
 ```
 
-Uses only Apple frameworks; no third-party packages. The build produces a locally ad-hoc-signed app for your Mac's architecture. It is not Developer ID signed or notarized.
+On **Linux** (X11 or Wayland) it produces `build/herdr-pixel-dungeon`. The tray icon, dialogs and sounds need GTK 3, an AppIndicator-capable tray (libayatana-appindicator), xdo and ALSA; on Debian/Ubuntu:
 
-Close the window to keep monitoring from the menu bar, where a pixel knight's helm marks the app. Use its menu to reopen the window, set sounds and notifications, or quit. **Herdr session** lists Herdr's sessions (`herdr session list`) to switch which one the dungeon watches — agents, log and selection start over — and remembers your pick; `HERDR_SESSION` still overrides it at launch. The same menu has **Demo** to try fictional agents without Herdr, **Always on top** (on by default) and **Open at login** (through macOS's login items; a locally built app may be refused, and the app says so). The widget reopens where you left it, at the size you gave it, and remembers sounds, notifications, the session and the state filter. Live mode never inserts fictional agents.
+```sh
+sudo apt install libgtk-3-dev libayatana-appindicator3-dev libxdo-dev libasound2-dev
+./scripts/build.sh
+./build/herdr-pixel-dungeon
+# optional: a launcher entry and icon
+cp build/herdr-pixel-dungeon ~/.local/bin/ && cp build/herdr-pixel-dungeon.desktop ~/.local/share/applications/ && cp build/herdr-pixel-dungeon.png ~/.local/share/icons/
+```
+
+`cargo test` and `herdr-pixel-dungeon --self-test` run the same checks (everything that works without a window). `--demo` shows fictional agents without Herdr; `--diagnose` prints what Herdr reports. `HPD_LANG=en` forces a language (Spanish, English, French, Italian and Portuguese follow the system locale otherwise), and `HPD_REDUCE_MOTION=1` stops the animations.
+
+Close the window to keep monitoring from the menu bar, where a pixel knight's helm marks the app. Use its menu to reopen the window, set sounds and notifications, or quit. **Herdr session** lists Herdr's sessions (`herdr session list`) to switch which one the dungeon watches — agents, log and selection start over — and remembers your pick; `HERDR_SESSION` still overrides it at launch. The same menu has **Demo** to try fictional agents without Herdr, **Always on top** (on by default) and **Open at login** (a LaunchAgent on macOS, an autostart entry on Linux). The widget reopens where you left it, at the size you gave it, and remembers sounds, notifications, the session and the state filter. Live mode never inserts fictional agents.
 
 ## States and rooms
 
@@ -63,18 +72,18 @@ Each harness has its own classic hero, coloured after the tool's brand (no logos
 
 **Activity log.** The scroll button (top-right on hover, and in the bar under the rooms) unrolls the guild's log on a parchment: agents joining and leaving, state changes (needing attention, finishing…), subagents starting and the messages you sent, newest first with the time. It keeps the last 40 lines in memory only.
 
-**Notifications.** When an agent starts needing help the app also posts a macOS notification (with the question, when it knows it); a finished agent can notify too. Click a banner to bring up the dungeon with that agent's chat open. Turn them on or off per moment from the menu bar's **Notifications** menu; macOS asks for permission the first time.
+**Notifications.** When an agent starts needing help the app also posts a desktop notification (Notification Center on macOS, the notification daemon on Linux) with the question when it knows it; a finished agent can notify too. On Linux, clicking the banner brings up the dungeon with that agent's chat open. Turn them on or off per moment from the status item's **Notifications** menu.
 
 **Many agents.** Resize the widget from its edges or the grip in its bottom-right corner: rooms wrap like a flex row into as many columns as fit, and the window snaps to whole rooms. It starts at two columns and up to four rows; the size you pick is remembered, the smallest is one room. With fewer agents than columns it narrows (a single agent is one square), and it grows with the agents up to your row count; past that, scroll with the trackpad or wheel and a thin bar shows where you are. Opening an agent's chat scrolls its room into view. With three or more agents a bar under the rooms shows one chip per state with its count — click one to show only those rooms (the red **!** chip stays lit while anyone needs you) — and a search box that matches project, harness, branch, folder and activity, ignoring case and accents. The chosen chip is remembered.
 
 **Subagents.** Herdr does not report subagents, so for Claude Code agents the app reads the transcripts Claude Code writes under `~/.claude/projects/<project>/<session>/subagents/`. It matches them by the session ID in Herdr's snapshot. A subagent counts as active while its transcript changed in the last 30 seconds. Active subagents appear as small heroes of the same harness, with a count in the room's title. Each one goes to the station of the last tool in its own transcript (reading at the shelf, brewing at the alchemy table, forging at the anvil, typing beside the lead hero…) and walks to a new one when it changes tool. Other harnesses show no subagents.
 
 - Event-driven: the app keeps one connection to Herdr's socket subscribed to its events (`events.subscribe`: each agent pane's status, panes appearing, changing or closing, workspaces renamed or closed), so a change shows up the moment it happens. `herdr api snapshot` runs only to bootstrap, after a structural change, once a minute to reconcile, and — if the event connection drops — every second as before while it reconnects. Local enrichment (branch, jobs, subagents, tools) is read from files each second without starting processes.
-- Native SpriteKit animations and crisp nearest-neighbor sprites: the hero types, hammers, jumps on the rug when it needs you, celebrates or sleeps depending on the room.
+- Native egui animations and crisp nearest-neighbor sprites: the hero types, hammers, jumps on the rug when it needs you, celebrates or sleeps depending on the room.
 - Search, state filters, agent selection, project, pane, directory and terminal title.
 - Latest status change and per-state counts; the menu bar shows only the helm icon, with the number of agents needing attention in its tooltip.
 - Explicit connection state: when Herdr is unreachable or its data stops updating, a banner over the rooms says so with the time since the last good update, and the last known rooms stay on screen, faded, while the app keeps reconnecting.
-- Animation pause and macOS Reduce Motion support.
+- Animation pause with macOS Reduce Motion (or `HPD_REDUCE_MOTION=1`).
 - Artist credits and licenses accessible from the app.
 
 Activity means **the title reported by the terminal**, not an inferred summary. Animation represents state, not tool calls or completion percentage. Agents outside the selected Herdr session are not included. Very large rosters may share visual positions; the list remains complete.

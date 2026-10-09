@@ -10,3 +10,5 @@ build/
 *.app/
 *.dmg
 *.zip
+/target/
+Resources/Icon/icon.iconset/
