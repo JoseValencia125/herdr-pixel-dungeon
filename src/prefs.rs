@@ -27,6 +27,9 @@ pub struct Prefs {
     pub open_herdr_at_start: bool,
     /// Text size in the panels, as a factor (1.0 = normal).
     pub text_scale: f32,
+    /// Text size of the console (the agent's terminal), its own factor.
+    #[serde(default = "one")]
+    pub console_scale: f32,
     #[serde(skip)]
     pub path: Option<PathBuf>,
 }
@@ -50,10 +53,13 @@ impl Default for Prefs {
             create_folder: String::new(),
             open_herdr_at_start: false,
             text_scale: 1.0,
+            console_scale: 1.0,
             path: None,
         }
     }
 }
+
+fn one() -> f32 { 1.0 }
 
 impl Prefs {
     pub fn default_path() -> PathBuf {
@@ -65,6 +71,7 @@ impl Prefs {
         prefs.columns = prefs.columns.max(1);
         prefs.rows = prefs.rows.max(1);
         prefs.text_scale = prefs.text_scale.clamp(0.7, 1.6);
+        prefs.console_scale = prefs.console_scale.clamp(0.6, 2.5);
         prefs.path = Some(path);
         prefs
     }

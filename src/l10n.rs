@@ -160,6 +160,9 @@ pub static TABLE: LazyLock<HashMap<&'static str, [&'static str; 4]>> = LazyLock:
         ("Más grande", ["Bigger", "Plus grand", "Più grande", "Maior"]),
         ("Más pequeño", ["Smaller", "Plus petit", "Più piccolo", "Menor"]),
         ("Normal", ["Normal", "Normale", "Normale", "Normal"]),
+        ("Tamaño de la consola", ["Console text size", "Taille du texte de la console", "Dimensione del testo della console", "Tamanho do texto do console"]),
+        ("Consola más grande", ["Bigger console text", "Console plus grande", "Console più grande", "Console maior"]),
+        ("Consola más pequeña", ["Smaller console text", "Console plus petite", "Console più piccola", "Console menor"]),
         // Demo activity titles
         ("Construyendo la página de ajustes", ["Building the settings page", "Construction de la page des réglages", "Costruisco la pagina delle impostazioni", "Construindo a página de ajustes"]),
         ("Revisando las pruebas", ["Reviewing the tests", "Révision des tests", "Rivedo i test", "Revisando os testes"]),

@@ -71,6 +71,7 @@ The ⤢ button (top-right on hover), the menu's **Full screen**, or ⌃⌘F (F11
 Close or minimize the window to keep monitoring from the menu bar (macOS) or the tray (Linux), where a pixel knight's helm marks the app; its tooltip counts the agents needing attention. A left click shows or hides the window; the menu has:
 
 - **Show / hide**, **Move back to the corner**, **Always on top** (on by default), **Full screen**, **Open at login** (a LaunchAgent on macOS, an autostart entry on Linux).
+- **Console text size**: the agent's terminal at its own size, apart from the panels' text (also **A+** / **A-** in the chat header, or ⌘⇧+ / ⌘⇧- / ⌘⇧0).
 - **Sounds** and **Notifications**, each with per-moment switches.
 - **Text size**.
 - **Herdr session**: Herdr's sessions (`herdr session list`), to switch which one the dungeon watches — agents, log and selection start over — remembered; `HERDR_SESSION` still overrides it at launch. **Demo** shows fictional agents without Herdr; live mode never inserts fictional agents.

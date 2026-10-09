@@ -33,6 +33,9 @@ pub enum TrayAction {
     TextBigger,
     TextSmaller,
     TextNormal,
+    ConsoleBigger,
+    ConsoleSmaller,
+    ConsoleNormal,
     About,
     Quit,
 }
@@ -55,6 +58,7 @@ pub struct MenuState {
     pub attention: usize,
     pub open_at_start: bool,
     pub text_scale: f32,
+    pub console_scale: f32,
 }
 
 /// Menu bar icon: a pixel knight's great helm (T visor, breathing holes,
@@ -165,9 +169,18 @@ fn build_menu(state: &MenuState) -> (Menu, HashMap<MenuId, TrayAction>) {
     add(&smaller, TrayAction::TextSmaller);
     add(&normal, TrayAction::TextNormal);
 
+    let console = Submenu::new(tr("Tamaño de la consola"), true);
+    let console_bigger = item(&tr("Más grande"));
+    let console_smaller = item(&tr("Más pequeño"));
+    let console_normal = check(&tr("Normal"), true, (state.console_scale - 1.0).abs() < 0.01);
+    let _ = console.append_items(&[&console_bigger, &console_smaller, &console_normal]);
+    add(&console_bigger, TrayAction::ConsoleBigger);
+    add(&console_smaller, TrayAction::ConsoleSmaller);
+    add(&console_normal, TrayAction::ConsoleNormal);
+
     let about = item(&tr("Acerca de Herdr Pixel Dungeon"));
     let quit = item(&tr("Salir"));
-    let _ = menu.append_items(&[&sounds, &notify, &text, &PredefinedMenuItem::separator(), &sessions, &open_herdr, &open_at_start, &PredefinedMenuItem::separator(), &about, &quit]);
+    let _ = menu.append_items(&[&sounds, &notify, &text, &console, &PredefinedMenuItem::separator(), &sessions, &open_herdr, &open_at_start, &PredefinedMenuItem::separator(), &about, &quit]);
     add(&about, TrayAction::About);
     add(&quit, TrayAction::Quit);
     (menu, actions)

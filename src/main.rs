@@ -233,7 +233,7 @@ impl App {
             notifier: Notifier::new(),
             scene,
             assets: Assets::new(&cc.egui_ctx),
-            tray: Tray::new(&MenuState { sounds: true, sound_help: true, sound_done: true, notify: true, notify_help: true, notify_done: false, on_top: true, fullscreen: false, login: false, sessions: vec![], session: String::new(), demo: false, attention: 0, open_at_start: false, text_scale: 1.0 }, wake),
+            tray: Tray::new(&MenuState { sounds: true, sound_help: true, sound_done: true, notify: true, notify_help: true, notify_done: false, on_top: true, fullscreen: false, login: false, sessions: vec![], session: String::new(), demo: false, attention: 0, open_at_start: false, text_scale: 1.0, console_scale: 1.0 }, wake),
             chat: None,
             compose: ComposeState::default(),
             hud: HudState::default(),
@@ -263,6 +263,7 @@ impl App {
             enter_fullscreen_at: None,
         };
         ui::set_text_scale(app.prefs.text_scale);
+        ui::set_console_scale(app.prefs.console_scale);
         app.monitor.refresh();
         app
     }
@@ -284,6 +285,7 @@ impl App {
             attention: self.monitor.agents.iter().filter(|a| a.status == "blocked").count(),
             open_at_start: self.prefs.open_herdr_at_start,
             text_scale: self.prefs.text_scale,
+            console_scale: self.prefs.console_scale,
         }
     }
 
@@ -546,6 +548,9 @@ impl App {
             TrayAction::TextBigger => self.set_text_scale(self.prefs.text_scale + 0.1),
             TrayAction::TextSmaller => self.set_text_scale(self.prefs.text_scale - 0.1),
             TrayAction::TextNormal => self.set_text_scale(1.0),
+            TrayAction::ConsoleBigger => self.step_console_scale(1),
+            TrayAction::ConsoleSmaller => self.step_console_scale(-1),
+            TrayAction::ConsoleNormal => self.set_console_scale(1.0),
             TrayAction::About => {
                 rfd::MessageDialog::new().set_title(tr("Acerca de Herdr Pixel Dungeon")).set_description(format!("Herdr Pixel Dungeon {}\n{}", env!("CARGO_PKG_VERSION"), tr("Creado por Nacho Valencia.\nCódigo y pixel art originales · MIT."))).show();
             }
@@ -557,6 +562,17 @@ impl App {
         self.prefs.text_scale = scale.clamp(0.7, 1.6);
         self.prefs.save();
         ui::set_text_scale(self.prefs.text_scale);
+    }
+
+    /// The console's own text size, apart from the panels'.
+    fn set_console_scale(&mut self, scale: f32) {
+        self.prefs.console_scale = scale.clamp(0.6, 2.5);
+        self.prefs.save();
+        ui::set_console_scale(self.prefs.console_scale);
+    }
+
+    fn step_console_scale(&mut self, step: i8) {
+        if step != 0 { self.set_console_scale(self.prefs.console_scale * if step > 0 { 1.15 } else { 1.0 / 1.15 }); }
     }
 
     /// Open Herdr in a terminal window (its server stays up afterwards).
@@ -620,14 +636,27 @@ impl eframe::App for App {
         }
         for id in self.notifier.clicked() { self.open_agent(ctx, &id); needs_fit = true; }
         for action in self.tray.poll() { self.handle_tray(ctx, action); needs_fit = true; }
-        // ⌘+ / ⌘- / ⌘0 change the text size.
-        let (bigger, smaller, normal) = ctx.input(|i| {
-            let cmd = i.modifiers.command;
-            (cmd && (i.key_pressed(egui::Key::Plus) || i.key_pressed(egui::Key::Equals)), cmd && i.key_pressed(egui::Key::Minus), cmd && i.key_pressed(egui::Key::Num0))
+        // ⌘+ / ⌘- / ⌘0 change the text size; with ⇧ the console's. The
+        // physical key counts too: with ⇧ the "+" key types another character
+        // on many layouts.
+        let steps: Vec<(i8, bool)> = ctx.input(|i| {
+            i.events.iter().filter_map(|e| match e {
+                egui::Event::Key { key, physical_key, pressed: true, modifiers, .. } if modifiers.command => {
+                    let is = |k: egui::Key| *key == k || *physical_key == Some(k);
+                    let step = if is(egui::Key::Plus) || is(egui::Key::Equals) { 1 } else if is(egui::Key::Minus) { -1 } else if is(egui::Key::Num0) { 0 } else { return None };
+                    Some((step, modifiers.shift))
+                }
+                _ => None,
+            }).collect()
         });
-        if bigger { self.set_text_scale(self.prefs.text_scale + 0.1); }
-        if smaller { self.set_text_scale(self.prefs.text_scale - 0.1); }
-        if normal { self.set_text_scale(1.0); }
+        for (step, console) in steps {
+            match (console, step) {
+                (true, 0) => self.set_console_scale(1.0),
+                (true, step) => self.step_console_scale(step),
+                (false, 0) => self.set_text_scale(1.0),
+                (false, step) => self.set_text_scale(self.prefs.text_scale + 0.1 * step as f32),
+            }
+        }
         // F11 (and ⌃⌘F on macOS) toggle full screen; esc leaves it once
         // nothing else is open to close.
         let (toggle, escape) = ctx.input(|i| {
@@ -753,6 +782,7 @@ impl eframe::App for App {
                         if let Some(agent) = self.monitor.agents.iter().find(|a| a.id == chat.agent_id).cloned() {
                             let action = ui::chat_panel(ui, &self.monitor, &agent, chat, now, fullscreen);
                             if action.close { self.monitor.select(None); }
+                            if action.console_step != 0 { self.step_console_scale(action.console_step); }
                         }
                     } else {
                         ui::console_placeholder(ui);

@@ -89,6 +89,18 @@ pub fn fs(size: f32) -> f32 {
     (size * text_scale()).round()
 }
 
+/// The console's text size, a factor of its own (the terminal is read at a
+/// different size than the panels around it).
+static CONSOLE_SCALE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0x3f800000); // 1.0
+
+pub fn set_console_scale(scale: f32) {
+    CONSOLE_SCALE.store(scale.clamp(0.6, 2.5).to_bits(), std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn console_scale() -> f32 {
+    f32::from_bits(CONSOLE_SCALE.load(std::sync::atomic::Ordering::Relaxed))
+}
+
 fn flat_button(ui: &mut Ui, text: RichText) -> egui::Response {
     ui.add(egui::Button::new(text).frame(false))
 }
@@ -241,6 +253,8 @@ impl ChatState {
 
 pub struct ChatAction {
     pub close: bool,
+    /// The console's text size: +1 bigger, -1 smaller.
+    pub console_step: i8,
 }
 
 /// Opens under the rooms when one is clicked: the tail of the agent's
@@ -249,7 +263,7 @@ pub struct ChatAction {
 /// twice a second; `wide` (full screen) sizes the font so its lines stay
 /// whole. A question keeps the plain lines, whose options are clicked.
 pub fn chat_panel(ui: &mut Ui, monitor: &Monitor, agent: &Agent, state: &mut ChatState, now: f64, wide: bool) -> ChatAction {
-    let mut action = ChatAction { close: false };
+    let mut action = ChatAction { close: false, console_step: 0 };
     // Keep the terminal tail fresh while the panel is open.
     if state.status_seen != agent.status { state.status_seen = agent.status.clone(); state.next_tail = 0.0; state.next_screen = 0.0; }
     if now >= state.next_tail && state.tail_rx.is_none() {
@@ -327,6 +341,9 @@ pub fn chat_panel(ui: &mut Ui, monitor: &Monitor, agent: &Agent, state: &mut Cha
                 if !standalone && flat_button(ui, mono("↗", 13.0).color(Color32::WHITE)).on_hover_text(tr("Enfocar este agente en Herdr")).clicked() && !sending {
                     state.run(monitor.focus(agent));
                 }
+                // The console's own text size.
+                if flat_button(ui, mono("A+", 11.0).color(Color32::from_gray(200))).on_hover_text(format!("{} (⌘⇧+)", tr("Consola más grande"))).clicked() { action.console_step = 1; }
+                if flat_button(ui, mono("A-", 11.0).color(Color32::from_gray(200))).on_hover_text(format!("{} (⌘⇧-)", tr("Consola más pequeña"))).clicked() { action.console_step = -1; }
             });
         });
         let body_height = total - 7.0 * 2.0 - 22.0 - if standalone { 14.0 } else { 36.0 } - if state.note.is_some() { 16.0 } else { 0.0 };
@@ -338,9 +355,11 @@ pub fn chat_panel(ui: &mut Ui, monitor: &Monitor, agent: &Agent, state: &mut Cha
             // The screen as the terminal paints it, colours and all.
             if !asking && !state.screen.is_empty() {
                 // Full screen: the widest line sets the font, so terminal
-                // lines stay whole. The widget wraps them instead.
+                // lines stay whole; the widget wraps them instead. Then the
+                // console's own size factor, apart from the panels' text size.
                 let widest = state.screen.iter().map(|l| l.iter().map(|s| s.text.chars().count()).sum::<usize>()).max().unwrap_or(1).max(1) as f32;
-                let size = if wide { (ui.available_width() / (widest * 0.62)).clamp(7.0, fs(12.0)).floor() } else { fs(11.0) };
+                let base = if wide { (ui.available_width() / (widest * 0.62)).clamp(7.0, 12.0) } else { 11.0 };
+                let size = (base * console_scale()).round().max(6.0);
                 egui::ScrollArea::vertical().auto_shrink([false, false]).stick_to_bottom(true).show(ui, |ui| {
                     ui.spacing_mut().item_spacing = vec2(0.0, 2.0);
                     for line in &state.screen {
