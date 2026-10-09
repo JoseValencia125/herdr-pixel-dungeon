@@ -31,8 +31,19 @@ impl GuildEvent {
 
 type Fresh = Option<(Vec<Agent>, HashMap<String, String>)>;
 
+/// Whether Herdr can be used, as of the last refresh.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HerdrState {
+    Unknown,
+    /// No `herdr` binary: the standalone viewer shows what runs in terminals.
+    Missing,
+    /// Installed, but its server does not answer: standalone meanwhile.
+    Down,
+    Up,
+}
+
 enum Inbox {
-    Refresh { generation: u64, result: Result<(Fresh, Vec<Agent>), MonitorError> },
+    Refresh { generation: u64, result: Result<(Fresh, Vec<Agent>), MonitorError>, herdr: HerdrState },
     Socket { generation: u64, path: Option<String>, panes: Vec<String>, was_up: bool },
     Stream(u64, StreamMessage),
     Sessions(Vec<HerdrSession>),
@@ -71,6 +82,9 @@ pub struct Monitor {
     pub alerts: Vec<AgentAlert>,
     /// Something the window chrome reacts to changed (agents, panels, filter).
     pub changed: bool,
+    /// Herdr's availability; while not Up the rooms come from the standalone scan.
+    pub herdr: HerdrState,
+    next_herdr_try: Instant,
 
     inbox: Receiver<Inbox>,
     outbox: Sender<Inbox>,
@@ -116,6 +130,8 @@ impl Monitor {
             sessions: vec![],
             alerts: vec![],
             changed: false,
+            herdr: HerdrState::Unknown,
+            next_herdr_try: Instant::now(),
             inbox,
             outbox,
             wake: Arc::new(|| {}),
@@ -150,6 +166,11 @@ impl Monitor {
 
     pub fn is_filtering(&self) -> bool {
         self.filter != StatusFilter::All || !self.query.trim().is_empty()
+    }
+
+    /// Without Herdr the rooms are read-only: nothing can be typed into an agent.
+    pub fn standalone(&self) -> bool {
+        !self.demo && self.herdr != HerdrState::Up
     }
 
     /// The HUD shows once there are enough rooms to sift, or while a filter hides some.
@@ -272,9 +293,14 @@ impl Monitor {
         while let Ok(message) = self.inbox.try_recv() {
             touched = true;
             match message {
-                Inbox::Refresh { generation, result } => {
+                Inbox::Refresh { generation, result, herdr } => {
                     self.busy = false;
                     if generation != self.generation { self.refresh(); continue; }
+                    if herdr != self.herdr { self.herdr = herdr; self.changed = true; }
+                    if herdr == HerdrState::Down || herdr == HerdrState::Missing {
+                        // Try Herdr again in a few seconds; the scan carries on meanwhile.
+                        self.next_herdr_try = Instant::now() + Duration::from_secs(if herdr == HerdrState::Missing { 10 } else { 4 });
+                    }
                     match result {
                         Ok((fresh, shown)) => {
                             if let Some((agents, names)) = fresh {
@@ -285,7 +311,7 @@ impl Monitor {
                             }
                             let demo = self.demo;
                             self.apply(shown);
-                            if !demo { self.keep_stream(); }
+                            if !demo && herdr == HerdrState::Up { self.keep_stream(); }
                         }
                         Err(error) => {
                             let text = error.text();
@@ -382,24 +408,42 @@ impl Monitor {
         let session = self.session.clone();
         let reconcile = self.last_snapshot.map(|t| t.elapsed() > RECONCILE_EVERY).unwrap_or(true);
         let snapshot = !demo && (self.needs_snapshot || !self.stream_up || reconcile);
+        let herdr_now = self.herdr;
+        let try_herdr = herdr_now == HerdrState::Up || herdr_now == HerdrState::Unknown || Instant::now() >= self.next_herdr_try;
         let known = self.base.clone();
         self.tick += 1;
         let sender = self.outbox.clone();
         let wake = self.wake.clone();
         std::thread::spawn(move || {
+            let mut herdr = herdr_now;
             let result = (|| {
                 if demo { return Ok((None, demo_agents(tick))); }
-                if snapshot {
-                    let data = run_herdr(&["api", "snapshot"], &session, Duration::from_secs(4))?;
-                    let (agents, names) = decode_snapshot_parts(&data)?;
-                    let shown = enrich(agents.clone());
-                    // The sessions list rides along with each snapshot, for the menu.
-                    let _ = sender.send(Inbox::Sessions(list_sessions()));
-                    return Ok((Some((agents, names)), shown));
+                let installed = herdr_binary().is_ok();
+                if !installed {
+                    herdr = HerdrState::Missing;
+                } else if herdr == HerdrState::Up && !snapshot {
+                    return Ok((None, enrich(known)));
+                } else if try_herdr {
+                    match run_herdr(&["api", "snapshot"], &session, Duration::from_secs(4)) {
+                        Ok(data) => {
+                            let (agents, names) = decode_snapshot_parts(&data)?;
+                            let shown = enrich(agents.clone());
+                            // The sessions list rides along with each snapshot, for the menu.
+                            let _ = sender.send(Inbox::Sessions(list_sessions()));
+                            herdr = HerdrState::Up;
+                            return Ok((Some((agents, names)), shown));
+                        }
+                        Err(error) => {
+                            // Herdr answered but with something broken: say so. Unreachable: standalone.
+                            if error.code().is_some() || herdr == HerdrState::Up { return Err(error); }
+                            herdr = HerdrState::Down;
+                        }
+                    }
                 }
-                Ok((None, enrich(known)))
+                // Standalone: the agents running in any terminal, from their processes and files.
+                Ok((None, enrich(crate::standalone::agents())))
             })();
-            let _ = sender.send(Inbox::Refresh { generation, result });
+            let _ = sender.send(Inbox::Refresh { generation, result, herdr });
             wake();
         });
     }
@@ -649,6 +693,15 @@ impl Monitor {
         let agent = agent.clone();
         let wake = self.wake.clone();
         std::thread::spawn(move || {
+            // Standalone (no Herdr): the agent's last reply, from its transcript.
+            if agent.id.starts_with("pid:") {
+                let text = agent.question_transcript.as_deref().and_then(|p| file_tail(p, 131_072)).and_then(|t| last_assistant_text(&t)).unwrap_or_default();
+                let rows: Vec<String> = if agent.status == "blocked" { question_lines(&text, None) } else { text.lines().map(str::to_string).collect() };
+                let start = rows.len().saturating_sub(lines);
+                let _ = tx.send(rows[start..].to_vec());
+                wake();
+                return;
+            }
             // A background job asking something: its whole question, options included.
             if !demo && agent.status == "blocked" {
                 if let Some(path) = &agent.question_transcript {

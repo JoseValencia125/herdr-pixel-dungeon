@@ -42,7 +42,23 @@ fn alpha(color: Color32, a: f32) -> Color32 {
 }
 
 fn mono(text: &str, size: f32) -> RichText {
-    RichText::new(text).font(FontId::monospace(size))
+    RichText::new(text).font(FontId::monospace(fs(size)))
+}
+
+/// Text size in the panels, as a factor the menu and ⌘+/⌘- change.
+static TEXT_SCALE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0x3f800000); // 1.0
+
+pub fn set_text_scale(scale: f32) {
+    TEXT_SCALE.store(scale.clamp(0.7, 1.6).to_bits(), std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn text_scale() -> f32 {
+    f32::from_bits(TEXT_SCALE.load(std::sync::atomic::Ordering::Relaxed))
+}
+
+/// A font size scaled by the text size preference.
+pub fn fs(size: f32) -> f32 {
+    (size * text_scale()).round()
 }
 
 fn flat_button(ui: &mut Ui, text: RichText) -> egui::Response {
@@ -105,7 +121,7 @@ pub fn hud(ui: &mut Ui, monitor: &mut Monitor, state: &mut HudState) -> HudActio
                 let mut query = monitor.query.clone();
                 let edit = egui::TextEdit::singleline(&mut query)
                     .hint_text(tr("Buscar…"))
-                    .font(FontId::monospace(11.0))
+                    .font(FontId::monospace(fs(11.0)))
                     .desired_width(ui.available_width())
                     .margin(Margin::symmetric(6, 3));
                 let response = ui.add(edit);
@@ -132,7 +148,7 @@ fn chip(ui: &mut Ui, monitor: &mut Monitor, filter: StatusFilter, narrow: bool) 
         StatusFilter::Blocked => format!("! {count}"),
         _ => format!("■ {count}"),
     };
-    let galley = ui.painter().layout_no_wrap(text.clone(), FontId::monospace(10.0), ink);
+    let galley = ui.painter().layout_no_wrap(text.clone(), FontId::monospace(fs(10.0)), ink);
     let size = vec2(galley.size().x + 10.0, 18.0);
     let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
     ui.painter().rect_filled(rect, CornerRadius::same(3), fill);
@@ -140,7 +156,7 @@ fn chip(ui: &mut Ui, monitor: &mut Monitor, filter: StatusFilter, narrow: bool) 
     if matches!(filter, StatusFilter::Working | StatusFilter::Idle | StatusFilter::Done) {
         // The square marker in the state's colour, then the count.
         ui.painter().rect_filled(egui::Rect::from_center_size(pos2(rect.min.x + 8.0, rect.center().y), vec2(6.0, 6.0)), CornerRadius::ZERO, color);
-        ui.painter().text(pos2(rect.min.x + 14.0, rect.center().y), Align2::LEFT_CENTER, count.to_string(), FontId::monospace(10.0), ink);
+        ui.painter().text(pos2(rect.min.x + 14.0, rect.center().y), Align2::LEFT_CENTER, count.to_string(), FontId::monospace(fs(10.0)), ink);
     } else {
         ui.painter().galley(pos2(rect.min.x + 5.0, rect.center().y - galley.size().y / 2.0), galley, ink);
     }
@@ -221,6 +237,7 @@ pub fn chat_panel(ui: &mut Ui, monitor: &Monitor, agent: &Agent, state: &mut Cha
     let sending = state.sending.is_some();
     let menu = state.menu(agent);
     let color = agent_color(&agent.status);
+    let standalone = monitor.standalone();
 
     // While the agent is asking something, ↑/↓ move its highlighted option
     // and ⏎ (with nothing typed) picks it, as in its own terminal.
@@ -229,7 +246,7 @@ pub fn chat_panel(ui: &mut Ui, monitor: &Monitor, agent: &Agent, state: &mut Cha
         (plain && i.consume_key(egui::Modifiers::NONE, Key::ArrowUp), plain && i.consume_key(egui::Modifiers::NONE, Key::ArrowDown), i.key_pressed(Key::Escape))
     });
     if escape { action.close = true; }
-    if agent.status == "blocked" && (up || down) {
+    if agent.status == "blocked" && (up || down) && !standalone {
         let delta: i64 = if up { -1 } else { 1 };
         if !menu.options.is_empty() {
             let start = state.choice.map(|c| c as i64).or(menu.highlighted.map(|h| h as i64)).unwrap_or(if delta > 0 { -1 } else { menu.options.len() as i64 });
@@ -249,12 +266,12 @@ pub fn chat_panel(ui: &mut Ui, monitor: &Monitor, agent: &Agent, state: &mut Cha
             ui.label(mono(&format!("{} · {}", agent.project, agent.label()), 11.0).color(DIM));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if flat_button(ui, mono("x", 13.0).color(Color32::WHITE)).on_hover_text("Cerrar (esc)").clicked() { action.close = true; }
-                if flat_button(ui, mono("↗", 13.0).color(Color32::WHITE)).on_hover_text(tr("Enfocar este agente en Herdr")).clicked() && !sending {
+                if !standalone && flat_button(ui, mono("↗", 13.0).color(Color32::WHITE)).on_hover_text(tr("Enfocar este agente en Herdr")).clicked() && !sending {
                     state.run(monitor.focus(agent));
                 }
             });
         });
-        let body_height = PANEL_HEIGHT - 16.0 - 7.0 * 2.0 - 22.0 - 24.0 - if state.note.is_some() { 16.0 } else { 0.0 };
+        let body_height = PANEL_HEIGHT - 16.0 - 7.0 * 2.0 - 22.0 - if standalone { 14.0 } else { 24.0 } - if state.note.is_some() { 16.0 } else { 0.0 };
         Frame::new().fill(alpha(Color32::BLACK, 0.45)).corner_radius(CornerRadius::same(5)).inner_margin(Margin::same(6)).show(ui, |ui| {
             ui.set_min_height(body_height.max(40.0));
             ui.set_max_height(body_height.max(40.0));
@@ -287,11 +304,15 @@ pub fn chat_panel(ui: &mut Ui, monitor: &Monitor, agent: &Agent, state: &mut Cha
                 if let Some(index) = picked { state.pick(&menu, index); }
             });
         });
+        if standalone {
+            ui.label(mono(&tr("Instala Herdr para responder desde aquí."), 10.0).color(DIM));
+            return;
+        }
         ui.horizontal(|ui| {
             let hint = if agent.status == "blocked" { trf("↑↓ y ⏎ eligen · o responde a {}…", &[&agent.name]) } else { trf("Escribir a {}…", &[&agent.name]) };
             let buttons_width = match agent.status.as_str() { "blocked" => 150.0, "working" => 80.0, _ => 26.0 };
             let mut draft = state.draft.clone();
-            let edit = egui::TextEdit::singleline(&mut draft).hint_text(hint).font(FontId::monospace(12.0)).desired_width(ui.available_width() - buttons_width).interactive(!sending);
+            let edit = egui::TextEdit::singleline(&mut draft).hint_text(hint).font(FontId::monospace(fs(12.0))).desired_width(ui.available_width() - buttons_width).interactive(!sending);
             let response = ui.add(edit);
             if state.focus { response.request_focus(); state.focus = false; }
             let submitted = response.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
@@ -323,7 +344,7 @@ pub fn chat_panel(ui: &mut Ui, monitor: &Monitor, agent: &Agent, state: &mut Cha
             }
         });
         if let Some(note) = &state.note {
-            ui.label(RichText::new(note).size(10.0).color(Color32::from_rgb(255, 159, 10)));
+            ui.label(RichText::new(note).size(fs(10.0)).color(Color32::from_rgb(255, 159, 10)));
         }
     });
     action
@@ -430,15 +451,15 @@ pub fn compose_panel(ui: &mut Ui, monitor: &Monitor, prefs: &mut Prefs, state: &
         Frame::new().fill(alpha(Color32::BLACK, 0.45)).corner_radius(CornerRadius::same(5)).inner_margin(Margin::same(3)).show(ui, |ui| {
             let height = PANEL_HEIGHT - 16.0 - 7.0 * 3.0 - 22.0 - 24.0 - 24.0;
             ui.set_width(ui.available_width());
-            let edit = egui::TextEdit::multiline(&mut state.prompt).hint_text(tr("Primer prompt (opcional)")).font(FontId::monospace(11.0)).desired_rows(4).frame(false).desired_width(f32::INFINITY).interactive(!busy);
+            let edit = egui::TextEdit::multiline(&mut state.prompt).hint_text(tr("Primer prompt (opcional)")).font(FontId::monospace(fs(11.0))).desired_rows(4).frame(false).desired_width(f32::INFINITY).interactive(!busy);
             ui.add_sized(vec2(ui.available_width(), height.max(40.0)), edit);
         });
         ui.horizontal(|ui| {
             if busy {
                 ui.spinner();
-                ui.label(RichText::new(tr("Invocando…")).size(10.0).color(DIM));
+                ui.label(RichText::new(tr("Invocando…")).size(fs(10.0)).color(DIM));
             } else if let Some(note) = &state.note {
-                ui.label(RichText::new(note).size(10.0).color(Color32::from_rgb(255, 159, 10)));
+                ui.label(RichText::new(note).size(fs(10.0)).color(Color32::from_rgb(255, 159, 10)));
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let shortcut = ui.input(|i| i.modifiers.command && i.key_pressed(Key::Enter));
@@ -528,6 +549,40 @@ pub fn connection_banner(ctx: &Context, text: &str, lost: bool) {
         .response
         .on_hover_text(if lost { tr("Reintentando la conexión automáticamente.") } else { tr("Herdr no ha entregado datos nuevos.") });
     });
+}
+
+// ---- Standalone banner
+
+pub struct HerdrBannerAction {
+    pub install: bool,
+    pub open: bool,
+    pub dismiss: bool,
+}
+
+/// Over the rooms while Herdr is missing or down: what that means, and the
+/// buttons to install it, open it, or carry on with the read-only viewer.
+pub fn herdr_banner(ctx: &Context, missing: bool, installing: bool, note: Option<&str>) -> HerdrBannerAction {
+    let mut action = HerdrBannerAction { install: false, open: false, dismiss: false };
+    egui::Area::new(egui::Id::new("herdr-banner")).anchor(Align2::CENTER_TOP, vec2(0.0, 16.0)).order(egui::Order::Foreground).show(ctx, |ui| {
+        Frame::new().fill(alpha(Color32::from_rgb(40, 36, 52), 0.96)).stroke(Stroke::new(2.0_f32, alpha(Color32::BLACK, 0.6))).corner_radius(CornerRadius::same(4)).inner_margin(Margin::symmetric(10, 6)).show(ui, |ui| {
+            ui.vertical(|ui| {
+                ui.spacing_mut().item_spacing = vec2(6.0, 5.0);
+                let text = if missing { tr("Herdr no está instalado · modo autónomo, solo lectura") } else { tr("Herdr no está corriendo · modo autónomo, solo lectura") };
+                ui.label(mono(&text, 10.0).strong().color(Color32::WHITE)).on_hover_text(tr("Los agentes se ven, pero no se les puede hablar: Herdr no está."));
+                if let Some(note) = note { ui.label(mono(note, 10.0).color(Color32::from_rgb(255, 159, 10))); }
+                ui.horizontal(|ui| {
+                    if installing {
+                        ui.spinner();
+                        ui.label(mono(&tr("Instalando Herdr…"), 10.0).color(DIM));
+                    } else if missing {
+                        if ui.button(mono(&tr("Instalar Herdr"), 10.0)).clicked() { action.install = true; }
+                    } else if ui.button(mono(&tr("Abrir Herdr"), 10.0)).clicked() { action.open = true; }
+                    if ui.button(mono(&tr("Seguir sin Herdr"), 10.0)).clicked() { action.dismiss = true; }
+                });
+            });
+        });
+    });
+    action
 }
 
 // ---- Controls, drag handle, grip

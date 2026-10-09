@@ -12,6 +12,10 @@ Created by **Nacho Valencia**. All pixel art is original, drawn in Aseprite for 
 
 Prebuilt binaries for macOS (`.app`, zipped) and Linux (x86_64 tarball with a `.desktop` entry and icon) are on the [Releases](https://github.com/JoseValencia125/herdr-pixel-dungeon/releases) page. The macOS app is ad-hoc signed, not notarized: the first time, right-click it and choose Open.
 
+## Without Herdr
+
+Herdr is what lets the dungeon talk to the agents: it owns their terminals, reports each pane's state and types into it. Without it the app still works as a **read-only viewer**: it finds the agents running in any terminal by their processes (Claude Code, Codex, Kiro, Gemini and the other harnesses Herdr knows) and infers their state from the files they write — Claude Code and Codex transcripts give working, waiting, and a tool call waiting for permission; the last prompt becomes the room's activity line. The chat shows the agent's last reply but cannot send anything, and there is no summoning. A banner over the rooms offers **Install Herdr** (its official installer, `curl -fsSL https://herdr.dev/install.sh | sh`), **Open Herdr** (a terminal running `herdr`, which leaves its server up) or **Carry on without Herdr**; the menu's **Open Herdr at startup** does the opening for you. Agents only appear in the full dungeon when they run inside Herdr.
+
 ## Build and open
 
 Requires [Rust](https://rustup.rs) (stable) and [Herdr](https://herdr.dev) with `herdr api snapshot` support. Tested with Herdr 0.9.1.
@@ -40,7 +44,7 @@ sudo apt install libgtk-3-dev libayatana-appindicator3-dev libxdo-dev libasound2
 cp build/herdr-pixel-dungeon ~/.local/bin/ && cp build/herdr-pixel-dungeon.desktop ~/.local/share/applications/ && cp build/herdr-pixel-dungeon.png ~/.local/share/icons/
 ```
 
-`cargo test` and `herdr-pixel-dungeon --self-test` run the same checks (everything that works without a window). `--demo` shows fictional agents without Herdr; `--diagnose` prints what Herdr reports. `HPD_LANG=en` forces a language (Spanish, English, French, Italian and Portuguese follow the system locale otherwise), and `HPD_REDUCE_MOTION=1` stops the animations.
+`cargo test` and `herdr-pixel-dungeon --self-test` run the same checks (everything that works without a window). `--demo` shows fictional agents without Herdr; `--diagnose` prints what Herdr reports. `HPD_NO_HERDR=1` pretends Herdr is not installed, to try the standalone viewer. `HPD_LANG=en` forces a language (Spanish, English, French, Italian and Portuguese follow the system locale otherwise), and `HPD_REDUCE_MOTION=1` stops the animations.
 
 Close the window to keep monitoring from the menu bar, where a pixel knight's helm marks the app. Use its menu to reopen the window, set sounds and notifications, or quit. **Herdr session** lists Herdr's sessions (`herdr session list`) to switch which one the dungeon watches — agents, log and selection start over — and remembers your pick; `HERDR_SESSION` still overrides it at launch. The same menu has **Demo** to try fictional agents without Herdr, **Always on top** (on by default) and **Open at login** (a LaunchAgent on macOS, an autostart entry on Linux). The widget reopens where you left it, at the size you gave it, and remembers sounds, notifications, the session and the state filter. Live mode never inserts fictional agents.
 
@@ -73,6 +77,8 @@ Each harness has its own classic hero, coloured after the tool's brand (no logos
 **Activity log.** The scroll button (top-right on hover, and in the bar under the rooms) unrolls the guild's log on a parchment: agents joining and leaving, state changes (needing attention, finishing…), subagents starting and the messages you sent, newest first with the time. It keeps the last 40 lines in memory only.
 
 **Notifications.** When an agent starts needing help the app also posts a desktop notification (Notification Center on macOS, the notification daemon on Linux) with the question when it knows it; a finished agent can notify too. On Linux, clicking the banner brings up the dungeon with that agent's chat open. Turn them on or off per moment from the status item's **Notifications** menu.
+
+**Text size.** ⌘+ / ⌘- (Ctrl on Linux) make the panels' text bigger or smaller, ⌘0 resets it; the menu's **Text size** does the same. The size is remembered.
 
 **Many agents.** Resize the widget from its edges or the grip in its bottom-right corner: rooms wrap like a flex row into as many columns as fit, and the window snaps to whole rooms. It starts at two columns and up to four rows; the size you pick is remembered, the smallest is one room. With fewer agents than columns it narrows (a single agent is one square), and it grows with the agents up to your row count; past that, scroll with the trackpad or wheel and a thin bar shows where you are. Opening an agent's chat scrolls its room into view. With three or more agents a bar under the rooms shows one chip per state with its count — click one to show only those rooms (the red **!** chip stays lit while anyone needs you) — and a search box that matches project, harness, branch, folder and activity, ignoring case and accents. The chosen chip is remembered.
 

@@ -262,6 +262,9 @@ pub fn expand_home(path: &str) -> String {
 
 /// Locate the herdr binary: HERDR_BIN, the usual install spots, then PATH.
 pub fn herdr_binary() -> Result<PathBuf, MonitorError> {
+    if std::env::var("HPD_NO_HERDR").map(|v| v == "1").unwrap_or(false) {
+        return Err(MonitorError::Message(tr("No se encontró Herdr. Instálalo o define HERDR_BIN.")));
+    }
     let home = home_dir();
     let mut candidates: Vec<PathBuf> = vec![];
     if let Ok(bin) = std::env::var("HERDR_BIN") { candidates.push(PathBuf::from(bin)); }

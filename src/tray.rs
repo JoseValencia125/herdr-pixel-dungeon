@@ -27,6 +27,11 @@ pub enum TrayAction {
     NotifyDone,
     Session(String),
     Demo,
+    OpenHerdr,
+    OpenAtStart,
+    TextBigger,
+    TextSmaller,
+    TextNormal,
     About,
     Quit,
 }
@@ -46,6 +51,8 @@ pub struct MenuState {
     pub session: String,
     pub demo: bool,
     pub attention: usize,
+    pub open_at_start: bool,
+    pub text_scale: f32,
 }
 
 /// Menu bar icon: a pixel knight's great helm (T visor, breathing holes,
@@ -140,9 +147,23 @@ fn build_menu(state: &MenuState) -> (Menu, HashMap<MenuId, TrayAction>) {
     let _ = sessions.append_items(&[&PredefinedMenuItem::separator(), &demo]);
     add(&demo, TrayAction::Demo);
 
+    let open_herdr = item(&tr("Abrir Herdr"));
+    let open_at_start = check(&tr("Abrir Herdr al iniciar"), true, state.open_at_start);
+    add(&open_herdr, TrayAction::OpenHerdr);
+    add(&open_at_start, TrayAction::OpenAtStart);
+
+    let text = Submenu::new(tr("Tamaño del texto"), true);
+    let bigger = item(&tr("Más grande"));
+    let smaller = item(&tr("Más pequeño"));
+    let normal = check(&tr("Normal"), true, (state.text_scale - 1.0).abs() < 0.01);
+    let _ = text.append_items(&[&bigger, &smaller, &normal]);
+    add(&bigger, TrayAction::TextBigger);
+    add(&smaller, TrayAction::TextSmaller);
+    add(&normal, TrayAction::TextNormal);
+
     let about = item(&tr("Acerca de Herdr Pixel Dungeon"));
     let quit = item(&tr("Salir"));
-    let _ = menu.append_items(&[&sounds, &notify, &PredefinedMenuItem::separator(), &sessions, &PredefinedMenuItem::separator(), &about, &quit]);
+    let _ = menu.append_items(&[&sounds, &notify, &text, &PredefinedMenuItem::separator(), &sessions, &open_herdr, &open_at_start, &PredefinedMenuItem::separator(), &about, &quit]);
     add(&about, TrayAction::About);
     add(&quit, TrayAction::Quit);
     (menu, actions)

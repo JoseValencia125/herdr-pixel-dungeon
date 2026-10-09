@@ -23,6 +23,10 @@ pub struct Prefs {
     pub top_right: Option<(f32, f32)>,
     pub create_kind: String,
     pub create_folder: String,
+    /// Open Herdr in a terminal when the app starts and its server is down.
+    pub open_herdr_at_start: bool,
+    /// Text size in the panels, as a factor (1.0 = normal).
+    pub text_scale: f32,
     #[serde(skip)]
     pub path: Option<PathBuf>,
 }
@@ -44,6 +48,8 @@ impl Default for Prefs {
             top_right: None,
             create_kind: "claude".into(),
             create_folder: String::new(),
+            open_herdr_at_start: false,
+            text_scale: 1.0,
             path: None,
         }
     }
@@ -58,6 +64,7 @@ impl Prefs {
         let mut prefs = std::fs::read(&path).ok().and_then(|d| serde_json::from_slice::<Prefs>(&d).ok()).unwrap_or_default();
         prefs.columns = prefs.columns.max(1);
         prefs.rows = prefs.rows.max(1);
+        prefs.text_scale = prefs.text_scale.clamp(0.7, 1.6);
         prefs.path = Some(path);
         prefs
     }

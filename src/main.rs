@@ -12,6 +12,7 @@ mod monitor;
 mod prefs;
 mod scene;
 mod selftest;
+mod standalone;
 mod tray;
 mod ui;
 
@@ -20,7 +21,7 @@ use assets::Assets;
 use egui::{vec2, Color32, CornerRadius, Frame, Rect, Vec2, ViewportCommand};
 use herdr::{connection_note, StatusFilter};
 use l10n::{tr, trf};
-use monitor::Monitor;
+use monitor::{HerdrState, Monitor};
 use prefs::Prefs;
 use scene::{Scene, BACKGROUND, GAP, ROW_H};
 use std::sync::Arc;
@@ -48,6 +49,12 @@ fn main() {
     let prefs = Prefs::load(Prefs::default_path());
     let session = std::env::var("HERDR_SESSION").ok().or_else(|| prefs.session.clone()).unwrap_or_else(|| "default".into());
     if args.iter().any(|a| a == "--diagnose") {
+        if herdr::herdr_binary().is_err() {
+            let agents = herdr::enrich(standalone::agents());
+            println!("Sin Herdr · modo autónomo: {} agentes", agents.len());
+            for a in agents { println!("{} | {} | {} | {} | {} | {}", a.id, a.name, a.status, a.project, a.action.clone().unwrap_or_default(), a.activity); }
+            return;
+        }
         match herdr::fetch_snapshot(&session) {
             Ok(agents) => {
                 println!("OK: {} agentes", agents.len());
@@ -109,6 +116,11 @@ struct App {
     /// A panel opened while the widget was one room wide: it widens to two
     /// rooms meanwhile, so the chat has room, and narrows back on close.
     widened: bool,
+    /// The standalone banner: hidden for this run, an install in progress, its outcome.
+    banner_dismissed: bool,
+    installing: Option<std::sync::mpsc::Receiver<Result<String, String>>>,
+    herdr_note: Option<String>,
+    opened_herdr: bool,
 }
 
 impl App {
@@ -137,7 +149,7 @@ impl App {
             notifier: Notifier::new(),
             scene,
             assets: Assets::new(&cc.egui_ctx),
-            tray: Tray::new(&MenuState { sounds: true, sound_help: true, sound_done: true, notify: true, notify_help: true, notify_done: false, on_top: true, login: false, sessions: vec![], session: String::new(), demo: false, attention: 0 }, wake),
+            tray: Tray::new(&MenuState { sounds: true, sound_help: true, sound_done: true, notify: true, notify_help: true, notify_done: false, on_top: true, login: false, sessions: vec![], session: String::new(), demo: false, attention: 0, open_at_start: false, text_scale: 1.0 }, wake),
             chat: None,
             compose: ComposeState::default(),
             hud: HudState::default(),
@@ -155,7 +167,12 @@ impl App {
             login,
             login_enabled,
             widened: false,
+            banner_dismissed: false,
+            installing: None,
+            herdr_note: None,
+            opened_herdr: false,
         };
+        ui::set_text_scale(app.prefs.text_scale);
         app.monitor.refresh();
         app
     }
@@ -174,6 +191,8 @@ impl App {
             session: self.monitor.session.clone(),
             demo: self.monitor.demo,
             attention: self.monitor.agents.iter().filter(|a| a.status == "blocked").count(),
+            open_at_start: self.prefs.open_herdr_at_start,
+            text_scale: self.prefs.text_scale,
         }
     }
 
@@ -358,11 +377,36 @@ impl App {
                 self.chat = None;
             }
             TrayAction::Demo => { let demo = !self.monitor.demo; self.monitor.set_demo(demo); self.chat = None; }
+            TrayAction::OpenHerdr => self.open_herdr(),
+            TrayAction::OpenAtStart => { self.prefs.open_herdr_at_start = !self.prefs.open_herdr_at_start; self.prefs.save(); }
+            TrayAction::TextBigger => self.set_text_scale(self.prefs.text_scale + 0.1),
+            TrayAction::TextSmaller => self.set_text_scale(self.prefs.text_scale - 0.1),
+            TrayAction::TextNormal => self.set_text_scale(1.0),
             TrayAction::About => {
                 rfd::MessageDialog::new().set_title(tr("Acerca de Herdr Pixel Dungeon")).set_description(format!("Herdr Pixel Dungeon {}\n{}", env!("CARGO_PKG_VERSION"), tr("Creado por Nacho Valencia.\nCódigo y pixel art originales · MIT."))).show();
             }
             TrayAction::Quit => ctx.send_viewport_cmd(ViewportCommand::Close),
         }
+    }
+
+    fn set_text_scale(&mut self, scale: f32) {
+        self.prefs.text_scale = scale.clamp(0.7, 1.6);
+        self.prefs.save();
+        ui::set_text_scale(self.prefs.text_scale);
+    }
+
+    /// Open Herdr in a terminal window (its server stays up afterwards).
+    fn open_herdr(&mut self) {
+        self.herdr_note = standalone::open_herdr().err().map(|_| tr("No se pudo abrir una terminal con Herdr."));
+    }
+
+    /// Run Herdr's installer in the background.
+    fn install_herdr(&mut self) {
+        if self.installing.is_some() { return; }
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.herdr_note = None;
+        std::thread::spawn(move || { let _ = tx.send(standalone::install_herdr()); });
+        self.installing = Some(rx);
     }
 
     /// Ask before typing /exit into an agent's chat.
@@ -407,6 +451,26 @@ impl eframe::App for App {
         }
         for id in self.notifier.clicked() { self.open_agent(ctx, &id); needs_fit = true; }
         for action in self.tray.poll() { self.handle_tray(ctx, action); needs_fit = true; }
+        // ⌘+ / ⌘- / ⌘0 change the text size.
+        let (bigger, smaller, normal) = ctx.input(|i| {
+            let cmd = i.modifiers.command;
+            (cmd && (i.key_pressed(egui::Key::Plus) || i.key_pressed(egui::Key::Equals)), cmd && i.key_pressed(egui::Key::Minus), cmd && i.key_pressed(egui::Key::Num0))
+        });
+        if bigger { self.set_text_scale(self.prefs.text_scale + 0.1); }
+        if smaller { self.set_text_scale(self.prefs.text_scale - 0.1); }
+        if normal { self.set_text_scale(1.0); }
+        // The installer's outcome.
+        if let Some(rx) = &self.installing {
+            if let Ok(result) = rx.try_recv() {
+                self.installing = None;
+                self.herdr_note = Some(match result { Ok(_) => tr("Herdr instalado. Ábrelo y lanza tus agentes dentro."), Err(e) => trf("La instalación falló: {}", &[&e]) });
+            }
+        }
+        // Open Herdr once at startup when asked and its server is down.
+        if self.prefs.open_herdr_at_start && !self.opened_herdr && self.monitor.herdr == HerdrState::Down {
+            self.opened_herdr = true;
+            self.open_herdr();
+        }
         self.tray.update(&self.menu_state());
         self.track_window(ctx, now);
 
@@ -493,7 +557,13 @@ impl eframe::App for App {
         });
 
         // Overlays.
-        if let Some((text, lost)) = &note { ui::connection_banner(ctx, text, *lost); }
+        let standalone = self.monitor.standalone() && matches!(self.monitor.herdr, HerdrState::Missing | HerdrState::Down);
+        if standalone && !self.banner_dismissed {
+            let action = ui::herdr_banner(ctx, self.monitor.herdr == HerdrState::Missing, self.installing.is_some(), self.herdr_note.as_deref());
+            if action.install { self.install_herdr(); }
+            if action.open { self.open_herdr(); }
+            if action.dismiss { self.banner_dismissed = true; }
+        } else if let Some((text, lost)) = &note { ui::connection_banner(ctx, text, *lost); }
         if hovering || self.show_log {
             let action = ui::controls(ctx, self.prefs.sound_enabled, self.show_log);
             if action.compose { let on = !self.monitor.composing; self.monitor.set_composing(on); }
