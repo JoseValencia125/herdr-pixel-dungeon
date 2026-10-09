@@ -60,7 +60,7 @@ With three or more agents a bar under the rooms shows one chip per state with it
 
 ## Full screen
 
-The ⤢ button (top-right on hover), the menu's **Full screen**, or ⌃⌘F (F11 on Linux) take the dungeon to the whole screen: the rooms fill the left side in as many whole columns as fit, with the state bar under them, and the right side is the console — the chat of the room you click, the summon panel from **+**, or a hint while nothing is chosen — at full height, so a long terminal tail and a question's options are read without scrolling. Esc closes the open chat first, then leaves full screen; so do the button, the menu and the keys. The widget comes back where it was, at its size. `--fullscreen` starts there.
+The ⤢ button (top-right on hover), the menu's **Full screen**, or ⌃⌘F (F11 on Linux) take the dungeon to the whole screen: the rooms stack in one column on the left (scroll for more), with the state bar under them, and all the rest is the console — the chat of the room you click, the summon panel from **+**, or a hint while nothing is chosen — at full height, so a long terminal tail and a question's options are read without scrolling. Esc closes the open chat first, then leaves full screen; so do the button, the menu and the keys. The widget comes back where it was, at its size. `--fullscreen` starts there.
 
 ## Text size
 

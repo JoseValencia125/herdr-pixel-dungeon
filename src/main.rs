@@ -159,7 +159,6 @@ struct App {
 
 /// The console's narrowest width in full screen; the rooms get whole
 /// columns in the rest.
-const CONSOLE_MIN: f32 = 420.0;
 /// Room above the console's header in full screen, for the hover controls.
 const CONSOLE_TOP: f32 = 44.0;
 
@@ -621,10 +620,9 @@ impl eframe::App for App {
             let hud_h = if shows_hud { ui::hud_height(&self.hud, &self.monitor) } else { 0.0 };
             // The rooms, the HUD under them and the chat or summon panel:
             // stacked in the widget; side by side in full screen, where the
-            // rooms take whole columns on the left and the console the rest.
+            // rooms take one column on the left and the console all the rest.
             let (scene_rect, hud_rect, panel_rect) = if fullscreen {
-                let columns = scene::columns_fitting(full.width() - CONSOLE_MIN);
-                let split = full.min.x + scene::width_for(columns);
+                let split = full.min.x + scene::width_for(1);
                 let scene_rect = Rect::from_min_max(full.min, egui::pos2(split, full.max.y - hud_h));
                 let hud_rect = Rect::from_min_max(egui::pos2(full.min.x, scene_rect.max.y), egui::pos2(split, full.max.y));
                 (scene_rect, hud_rect, Rect::from_min_max(egui::pos2(split, full.min.y), full.max))
