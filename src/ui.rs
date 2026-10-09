@@ -3,6 +3,7 @@
 //! its parchment, the connection banner, the hover controls, the drag
 //! handle and the resize grip.
 
+use crate::ansi::Span;
 use crate::herdr::{Agent, MenuOptions, StatusFilter, CREATABLE_KINDS};
 use crate::l10n::{tr, trf};
 use crate::monitor::{GuildEvent, Monitor};
@@ -12,7 +13,7 @@ use egui::{pos2, vec2, Align2, Color32, Context, CornerRadius, FontId, Frame, Ke
 use std::sync::mpsc::Receiver;
 
 pub const HUD_HEIGHT: f32 = 28.0;
-pub const PANEL_HEIGHT: f32 = 220.0;
+pub const PANEL_HEIGHT: f32 = 232.0;
 pub const PANEL_FILL: Color32 = Color32::from_rgb(23, 20, 28);
 pub const HUD_FILL: Color32 = Color32::from_rgb(19, 17, 23);
 const DIM: Color32 = Color32::from_rgb(150, 150, 155);
@@ -45,6 +46,31 @@ fn alpha(color: Color32, a: f32) -> Color32 {
 
 fn mono(text: &str, size: f32) -> RichText {
     RichText::new(text).font(FontId::monospace(fs(size)))
+}
+
+/// One terminal line as a label: each run in its colour, bold as a
+/// brighter stroke, dim faded, inverse swapped (done in the parser).
+fn screen_line(spans: &[Span], size: f32) -> egui::Label {
+    use egui::text::{LayoutJob, TextFormat};
+    let mut job = LayoutJob::default();
+    if spans.is_empty() {
+        job.append(" ", 0.0, TextFormat { font_id: FontId::monospace(size), ..Default::default() });
+    }
+    for span in spans {
+        let mut color = span.fg.unwrap_or(Color32::from_gray(222));
+        if span.bold { color = Color32::from_rgb(color.r().saturating_add(25), color.g().saturating_add(25), color.b().saturating_add(25)); }
+        if span.dim { color = alpha(color, 0.55); }
+        let format = TextFormat {
+            font_id: FontId::monospace(size),
+            color,
+            background: span.bg.unwrap_or(Color32::TRANSPARENT),
+            italics: span.italic,
+            underline: if span.underline { Stroke::new(1.0_f32, color) } else { Stroke::NONE },
+            ..Default::default()
+        };
+        job.append(&span.text, 0.0, format);
+    }
+    egui::Label::new(job).wrap()
 }
 
 /// Text size in the panels, as a factor the menu and ⌘+/⌘- change.
@@ -185,11 +211,15 @@ pub struct ChatState {
     next_tail: f64,
     focus: bool,
     status_seen: String,
+    /// The terminal with its colours (full screen only), and its refresh.
+    screen: Vec<Vec<Span>>,
+    screen_rx: Option<Receiver<String>>,
+    next_screen: f64,
 }
 
 impl ChatState {
     pub fn new(agent_id: &str) -> ChatState {
-        ChatState { agent_id: agent_id.to_string(), draft: String::new(), lines: vec![], note: None, sending: None, choice: None, tail_rx: None, next_tail: 0.0, focus: true, status_seen: String::new() }
+        ChatState { agent_id: agent_id.to_string(), draft: String::new(), lines: vec![], note: None, sending: None, choice: None, tail_rx: None, next_tail: 0.0, focus: true, status_seen: String::new(), screen: vec![], screen_rx: None, next_screen: 0.0 }
     }
 
     fn menu(&self, agent: &Agent) -> MenuOptions {
@@ -215,13 +245,28 @@ pub struct ChatAction {
 
 /// Opens under the rooms when one is clicked: the tail of the agent's
 /// terminal, quick answers for a permission prompt, and a box to type to it.
-pub fn chat_panel(ui: &mut Ui, monitor: &Monitor, agent: &Agent, state: &mut ChatState, now: f64) -> ChatAction {
+/// The terminal is shown as it is, colours and spinners included, refreshed
+/// twice a second; `wide` (full screen) sizes the font so its lines stay
+/// whole. A question keeps the plain lines, whose options are clicked.
+pub fn chat_panel(ui: &mut Ui, monitor: &Monitor, agent: &Agent, state: &mut ChatState, now: f64, wide: bool) -> ChatAction {
     let mut action = ChatAction { close: false };
     // Keep the terminal tail fresh while the panel is open.
-    if state.status_seen != agent.status { state.status_seen = agent.status.clone(); state.next_tail = 0.0; }
+    if state.status_seen != agent.status { state.status_seen = agent.status.clone(); state.next_tail = 0.0; state.next_screen = 0.0; }
     if now >= state.next_tail && state.tail_rx.is_none() {
         state.tail_rx = Some(monitor.tail(agent, 30));
         state.next_tail = now + 2.0;
+    }
+    if now >= state.next_screen && state.screen_rx.is_none() {
+        state.screen_rx = Some(monitor.screen(agent));
+        state.next_screen = now + 0.5;
+    }
+    if let Some(rx) = &state.screen_rx {
+        if let Ok(text) = rx.try_recv() {
+            let parsed = crate::ansi::parse(&text);
+            if !parsed.iter().all(|l| l.is_empty()) || state.screen.is_empty() { state.screen = parsed; }
+            state.screen_rx = None;
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(500));
+        }
     }
     if let Some(rx) = &state.tail_rx {
         if let Ok(lines) = rx.try_recv() {
@@ -237,6 +282,7 @@ pub fn chat_panel(ui: &mut Ui, monitor: &Monitor, agent: &Agent, state: &mut Cha
             state.focus = true;
             state.next_tail = now + 0.6;
             state.tail_rx = None;
+            state.next_screen = now + 0.3;
         }
     }
     let sending = state.sending.is_some();
@@ -283,12 +329,35 @@ pub fn chat_panel(ui: &mut Ui, monitor: &Monitor, agent: &Agent, state: &mut Cha
                 }
             });
         });
-        let body_height = total - 7.0 * 2.0 - 22.0 - if standalone { 14.0 } else { 24.0 } - if state.note.is_some() { 16.0 } else { 0.0 };
+        let body_height = total - 7.0 * 2.0 - 22.0 - if standalone { 14.0 } else { 36.0 } - if state.note.is_some() { 16.0 } else { 0.0 };
         Frame::new().fill(alpha(Color32::BLACK, 0.45)).corner_radius(CornerRadius::same(5)).inner_margin(Margin::same(6)).show(ui, |ui| {
             ui.set_min_height(body_height.max(40.0));
             ui.set_max_height(body_height.max(40.0));
             ui.set_width(ui.available_width());
             let asking = agent.status == "blocked" && !state.lines.is_empty();
+            // The screen as the terminal paints it, colours and all.
+            if !asking && !state.screen.is_empty() {
+                // Full screen: the widest line sets the font, so terminal
+                // lines stay whole. The widget wraps them instead.
+                let widest = state.screen.iter().map(|l| l.iter().map(|s| s.text.chars().count()).sum::<usize>()).max().unwrap_or(1).max(1) as f32;
+                let size = if wide { (ui.available_width() / (widest * 0.62)).clamp(7.0, fs(12.0)).floor() } else { fs(11.0) };
+                egui::ScrollArea::vertical().auto_shrink([false, false]).stick_to_bottom(true).show(ui, |ui| {
+                    ui.spacing_mut().item_spacing = vec2(0.0, 2.0);
+                    for line in &state.screen {
+                        // A rule the terminal's width: drawn to this width instead of wrapping.
+                        let text: String = line.iter().map(|s| s.text.as_str()).collect();
+                        let rule = text.trim();
+                        if rule.chars().count() >= 8 && rule.chars().all(|c| matches!(c, '─' | '━' | '═' | '-' | '╌' | '┄')) {
+                            let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), size + 2.0), egui::Sense::hover());
+                            let color = line.iter().find_map(|s| s.fg).unwrap_or(Color32::from_gray(100));
+                            ui.painter().hline(rect.x_range(), rect.center().y, Stroke::new(1.0_f32, color));
+                        } else {
+                            ui.add(screen_line(line, size));
+                        }
+                    }
+                });
+                return;
+            }
             // A question keeps its lines (the options are picked by line); a
             // plain tail is re-flowed into paragraphs that wrap to the panel.
             let shown: Vec<String> = if asking { state.lines.clone() } else { crate::herdr::paragraphs(&state.lines) };
@@ -324,7 +393,8 @@ pub fn chat_panel(ui: &mut Ui, monitor: &Monitor, agent: &Agent, state: &mut Cha
             let hint = if agent.status == "blocked" { trf("↑↓ y ⏎ eligen · o responde a {}…", &[&agent.name]) } else { trf("Escribir a {}…", &[&agent.name]) };
             let buttons_width = match agent.status.as_str() { "blocked" => 150.0, "working" => 80.0, _ => 26.0 };
             let mut draft = state.draft.clone();
-            let edit = egui::TextEdit::singleline(&mut draft).hint_text(hint).font(FontId::monospace(fs(12.0))).desired_width(ui.available_width() - buttons_width).interactive(!sending);
+            // Roomy: the box is a line and a half tall, so typing does not feel cramped.
+            let edit = egui::TextEdit::singleline(&mut draft).hint_text(hint).font(FontId::monospace(fs(13.0))).margin(Margin::symmetric(8, 8)).desired_width(ui.available_width() - buttons_width).interactive(!sending);
             let response = ui.add(edit);
             if state.focus { response.request_focus(); state.focus = false; }
             let submitted = response.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));

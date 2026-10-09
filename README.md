@@ -51,7 +51,7 @@ Original pixel art drawn in Aseprite (sources in `art/`), coloured after each to
 - **Chimes and desktop notifications** when an agent needs help or finishes.
 - **Subagents** as small heroes at the station of their own tool (Claude Code).
 - **Filters, search and an activity log**; the window resizes to whole rooms, scrolls, and remembers where you left it.
-- **Full screen** (⌃⌘F, F11 on Linux): one column of rooms on the left, the console in all the rest.
+- **Full screen** (⌃⌘F, F11 on Linux): its own space, one column of rooms on the left, the live console (colours and all) in the rest.
 - **Event-driven**: Herdr's socket events the moment they happen, snapshots only to reconcile.
 - Spanish, English, French, Italian and Portuguese.
 

@@ -4,6 +4,7 @@
 //! a status item in the menu bar or tray.
 
 mod alerts;
+mod ansi;
 mod assets;
 mod events;
 mod herdr;
@@ -40,26 +41,65 @@ const SCREEN_TOP: f32 = 25.0;
 #[cfg(not(target_os = "macos"))]
 const SCREEN_TOP: f32 = 0.0;
 
-/// The part of the screen a window may cover: on macOS below the menu bar
-/// and beside the Dock (asked of AppKit, since the menu bar is taller on
-/// notched displays); elsewhere the whole screen.
+/// macOS full screen (a space of its own, with the swipe between spaces)
+/// for the widget's own borderless window. winit's route would give it a
+/// title bar that stays as a black band on top, so the window is toggled
+/// directly instead: macOS only takes a regular app (one with a Dock icon)
+/// there, so the app becomes one on the way in and a menu-bar app again
+/// after leaving (see `set_regular_app`); the window must also be at the
+/// normal level and declared a full-screen candidate. Returns false where
+/// there is no such thing (not macOS, no window).
 #[cfg(target_os = "macos")]
-fn work_area(screen: Vec2) -> Rect {
-    use objc2_app_kit::NSScreen;
+fn native_fullscreen(on: bool) -> bool {
+    use objc2_app_kit::{NSApplication, NSNormalWindowLevel, NSWindowCollectionBehavior, NSWindowStyleMask};
     use objc2_foundation::MainThreadMarker;
-    let fallback = Rect::from_min_size(egui::pos2(0.0, SCREEN_TOP), vec2(screen.x, screen.y - SCREEN_TOP));
-    let Some(mtm) = MainThreadMarker::new() else { return fallback };
-    let Some(main) = NSScreen::mainScreen(mtm) else { return fallback };
-    let (frame, visible) = (main.frame(), main.visibleFrame());
-    // AppKit's origin is the bottom-left corner; the window's is the top-left.
-    let top = frame.size.height - (visible.origin.y + visible.size.height);
-    Rect::from_min_size(egui::pos2((visible.origin.x - frame.origin.x) as f32, top as f32), vec2(visible.size.width as f32, visible.size.height as f32))
+    let Some(mtm) = MainThreadMarker::new() else { return false };
+    let app = NSApplication::sharedApplication(mtm);
+    let windows = app.windows();
+    let Some(window) = windows.iter().find(|w| w.styleMask().contains(NSWindowStyleMask::Resizable)) else { return false };
+    let is_full = window.styleMask().contains(NSWindowStyleMask::FullScreen);
+    if on {
+        unsafe { window.setCollectionBehavior(window.collectionBehavior() | NSWindowCollectionBehavior::FullScreenPrimary) };
+        window.setLevel(NSNormalWindowLevel);
+    }
+    if is_full != on { window.toggleFullScreen(None); }
+    true
+}
+
+/// Before macOS full screen: a regular app, activated. The policy only
+/// takes hold once the app is active, so the toggle waits a moment
+/// (`set_fullscreen`). (The black strip on top of the full-screen space on
+/// a notched display is macOS's own; every app's space has it.)
+#[cfg(target_os = "macos")]
+fn prepare_fullscreen() {
+    use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy};
+    use objc2_foundation::MainThreadMarker;
+    let Some(mtm) = MainThreadMarker::new() else { return };
+    let app = NSApplication::sharedApplication(mtm);
+    app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
+    #[allow(deprecated)]
+    app.activateIgnoringOtherApps(true);
 }
 
 #[cfg(not(target_os = "macos"))]
-fn work_area(screen: Vec2) -> Rect {
-    Rect::from_min_size(egui::pos2(0.0, SCREEN_TOP), screen)
+fn prepare_fullscreen() {}
+
+
+#[cfg(not(target_os = "macos"))]
+fn native_fullscreen(_on: bool) -> bool { false }
+
+/// Back to a menu-bar app (no Dock icon) after full screen on macOS.
+#[cfg(target_os = "macos")]
+fn set_regular_app(regular: bool) {
+    use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy};
+    use objc2_foundation::MainThreadMarker;
+    let Some(mtm) = MainThreadMarker::new() else { return };
+    let policy = if regular { NSApplicationActivationPolicy::Regular } else { NSApplicationActivationPolicy::Accessory };
+    NSApplication::sharedApplication(mtm).setActivationPolicy(policy);
 }
+
+#[cfg(not(target_os = "macos"))]
+fn set_regular_app(_regular: bool) {}
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -155,6 +195,11 @@ struct App {
     fullscreen_at: Option<Instant>,
     /// Where the widget was before going full screen, to come back to.
     widget_rect: Option<Rect>,
+    /// Leaving full screen: once the window has settled, the app is a
+    /// menu-bar app again, on top again, back where it was.
+    leaving_fullscreen: bool,
+    /// Entering full screen: the toggle itself waits for this moment.
+    enter_fullscreen_at: Option<Instant>,
 }
 
 /// The console's narrowest width in full screen; the rooms get whole
@@ -214,6 +259,8 @@ impl App {
             fullscreen: false,
             fullscreen_at: None,
             widget_rect: None,
+            leaving_fullscreen: false,
+            enter_fullscreen_at: None,
         };
         ui::set_text_scale(app.prefs.text_scale);
         app.monitor.refresh();
@@ -376,20 +423,31 @@ impl App {
         self.resize_start = None;
         self.size_changed_at = None;
         self.grip = false;
-        // Not the platform's full screen: macOS refuses it for a borderless,
-        // always-on-top window of a menu-bar app (and winit gives it a title
-        // bar trying), so the window is moved and sized by hand instead.
+        // The platform's own full screen (on macOS a space of its own, with
+        // the swipe between spaces). Getting there drops the window's
+        // always-on-top level and makes the app a regular one; both come
+        // back once the window has settled after leaving.
         if on {
-            let (outer, screen) = ctx.input(|i| (i.viewport().outer_rect, i.viewport().monitor_size));
-            self.widget_rect = outer;
-            let area = work_area(screen.unwrap_or(vec2(1440.0, 900.0)));
-            self.place(ctx, area);
+            self.widget_rect = ctx.input(|i| i.viewport().outer_rect);
             self.show(ctx);
-        } else if let Some(rect) = self.widget_rect.take() {
-            self.place(ctx, rect);
+            prepare_fullscreen();
+            self.enter_fullscreen_at = Some(Instant::now() + Duration::from_millis(250));
+            ctx.request_repaint_after(Duration::from_millis(260));
         } else {
-            self.restore_position(ctx);
+            self.enter_fullscreen_at = None;
+            self.leaving_fullscreen = true;
+            if !native_fullscreen(false) { ctx.send_viewport_cmd(ViewportCommand::Fullscreen(false)); }
+            ctx.request_repaint_after(Duration::from_millis(1250));
         }
+    }
+
+    /// The toggle into full screen, once the app is ready for it.
+    fn enter_fullscreen_when_due(&mut self, ctx: &egui::Context) {
+        let Some(at) = self.enter_fullscreen_at else { return };
+        if Instant::now() < at { ctx.request_repaint_after(at - Instant::now()); return; }
+        self.enter_fullscreen_at = None;
+        self.fullscreen_at = Some(Instant::now());
+        if !native_fullscreen(true) { ctx.send_viewport_cmd(ViewportCommand::Fullscreen(true)); }
     }
 
     fn place(&mut self, ctx: &egui::Context, rect: Rect) {
@@ -401,13 +459,23 @@ impl App {
 
     /// Once the window has settled after a toggle, the widget's size is
     /// fitted to its rooms again (full screen needs nothing).
-    fn settle_fullscreen(&mut self) -> bool {
+    fn settle_fullscreen(&mut self, ctx: &egui::Context) -> bool {
         let Some(at) = self.fullscreen_at else { return false };
-        if at.elapsed() < Duration::from_millis(900) { return false; }
+        if at.elapsed() < Duration::from_millis(1200) { return false; }
         self.fullscreen_at = None;
         self.expected = None;
         self.last_size = None;
         self.last_outer = None;
+        if self.leaving_fullscreen {
+            self.leaving_fullscreen = false;
+            set_regular_app(false);
+            if self.prefs.on_top { ctx.send_viewport_cmd(ViewportCommand::WindowLevel(egui::WindowLevel::AlwaysOnTop)); }
+            match self.widget_rect.take() {
+                Some(rect) => self.place(ctx, rect),
+                None => self.restore_position(ctx),
+            }
+            self.show(ctx);
+        }
         !self.fullscreen
     }
 
@@ -568,7 +636,8 @@ impl eframe::App for App {
         });
         if toggle { let on = !self.fullscreen; self.set_fullscreen(ctx, on); }
         if escape && self.fullscreen && !self.panel_open() && !self.hud.searching && !self.show_log { self.set_fullscreen(ctx, false); }
-        if self.settle_fullscreen() { needs_fit = true; }
+        self.enter_fullscreen_when_due(ctx);
+        if self.settle_fullscreen(ctx) { needs_fit = true; }
         // The installer's outcome.
         if let Some(rx) = &self.installing {
             if let Ok(result) = rx.try_recv() {
@@ -632,7 +701,9 @@ impl eframe::App for App {
                 let hud_rect = Rect::from_min_max(egui::pos2(full.min.x, scene_rect.max.y), egui::pos2(full.max.x, scene_rect.max.y + hud_h));
                 (scene_rect, hud_rect, Rect::from_min_max(egui::pos2(full.min.x, hud_rect.max.y), full.max))
             };
-            // The dungeon.
+            // The dungeon, with a spare room to summon an agent in full screen.
+            self.scene.summon_tile = fullscreen;
+            self.scene.summoning = self.monitor.composing;
             let response = ui.scope_builder(egui::UiBuilder::new().max_rect(scene_rect), |ui| {
                 ui.set_clip_rect(scene_rect);
                 self.scene.ui(ui, &self.assets, now)
@@ -646,6 +717,7 @@ impl eframe::App for App {
                 self.monitor.select(next);
             }
             if let Some(id) = response.finish { self.confirm_finish(&id); }
+            if response.summon { let on = !self.monitor.composing; self.monitor.set_composing(on); }
             // The HUD.
             if shows_hud {
                 let bottom = if panel_open || fullscreen { 0 } else { 14 };
@@ -679,7 +751,7 @@ impl eframe::App for App {
                         if action.close { self.monitor.set_composing(false); }
                     } else if let Some(chat) = &mut self.chat {
                         if let Some(agent) = self.monitor.agents.iter().find(|a| a.id == chat.agent_id).cloned() {
-                            let action = ui::chat_panel(ui, &self.monitor, &agent, chat, now);
+                            let action = ui::chat_panel(ui, &self.monitor, &agent, chat, now, fullscreen);
                             if action.close { self.monitor.select(None); }
                         }
                     } else {

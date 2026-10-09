@@ -566,6 +566,28 @@ impl Monitor {
         rx
     }
 
+    /// The agent's terminal as it shows, colours included (ANSI), for the
+    /// full-screen console. Demo mode paints a plausible screen.
+    pub fn screen(&self, agent: &Agent) -> Receiver<String> {
+        let (tx, rx) = channel();
+        let session = self.session.clone();
+        let demo = self.demo;
+        let agent = agent.clone();
+        let wake = self.wake.clone();
+        std::thread::spawn(move || {
+            let text = if demo || agent.id.starts_with("pid:") {
+                format!("\x1b[38;2;215;119;87m●\x1b[0m \x1b[1m{}\x1b[0m\n  \x1b[2m⎿ Leyendo archivos del proyecto…\x1b[0m\n\n\x1b[38;2;136;136;136m────────────────────────────\x1b[0m\n❯ \x1b[2mTry \"fix the failing test\"\x1b[0m", agent.activity)
+            } else {
+                run_herdr(&["agent", "read", &agent.id, "--source", "visible", "--lines", "80", "--format", "ansi"], &session, Duration::from_secs(4))
+                    .map(|d| String::from_utf8_lossy(&d).to_string())
+                    .unwrap_or_default()
+            };
+            let _ = tx.send(text);
+            wake();
+        });
+        rx
+    }
+
     /// Bring the agent's pane to the front inside Herdr.
     pub fn focus(&self, agent: &Agent) -> Receiver<Option<String>> {
         self.act(vec![Monitor::args(&["agent", "focus", &agent.id])])

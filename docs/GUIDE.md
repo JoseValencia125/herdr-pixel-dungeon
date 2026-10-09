@@ -30,7 +30,7 @@ Herdr does not report subagents, so for Claude Code agents the app reads the tra
 
 ## Chat
 
-Click a room to open a chat panel for that agent: the last lines of its terminal (re-flowed into paragraphs), a box to send a message or the answer to a question, and buttons to accept or decline a permission prompt, interrupt the agent (esc), or focus its pane in Herdr.
+Click a room to open a chat panel for that agent: its terminal as it shows, colours and all (a question keeps its plain lines, with the options to click), a box to send a message or the answer to a question, and buttons to accept or decline a permission prompt, interrupt the agent (esc), or focus its pane in Herdr.
 
 While the agent is asking something with numbered options, ↑ and ↓ (or a click) highlight an option in the panel and put its text in the box; Enter then picks it — moving the agent's own menu to that option — or sends the text when the question is plain text. With nothing typed, Enter picks the option its terminal already highlights.
 
@@ -60,7 +60,7 @@ With three or more agents a bar under the rooms shows one chip per state with it
 
 ## Full screen
 
-The ⤢ button (top-right on hover), the menu's **Full screen**, or ⌃⌘F (F11 on Linux) take the dungeon to the whole screen: the rooms stack in one column on the left (scroll for more), with the state bar under them, and all the rest is the console — the chat of the room you click, the summon panel from **+**, or a hint while nothing is chosen — at full height, so a long terminal tail and a question's options are read without scrolling. Esc closes the open chat first, then leaves full screen; so do the button, the menu and the keys. The widget comes back where it was, at its size. `--fullscreen` starts there.
+The ⤢ button (top-right on hover), the menu's **Full screen**, or ⌃⌘F (F11 on Linux) take the dungeon to its own full-screen space (on macOS the real thing: swipe between spaces, like the green button): the rooms stack in one column on the left (scroll for more), a spare room with **+** to summon an agent, and the state bar under them; all the rest is the console — the chat of the room you click, the summon panel from **+**, or a hint while nothing is chosen — at full height, showing the terminal as it is, colours and spinners included, refreshed twice a second. Esc closes the open chat first, then leaves full screen; so do the button, the menu and the keys. The widget comes back where it was, at its size. `--fullscreen` starts there.
 
 ## Text size
 

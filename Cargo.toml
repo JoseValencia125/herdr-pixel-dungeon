@@ -28,8 +28,8 @@ libc = "0.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 mac-notification-sys = "0.6"
-objc2-app-kit = { version = "0.2", features = ["NSScreen"] }
-objc2-foundation = { version = "0.2", features = ["NSGeometry"] }
+objc2-app-kit = { version = "0.2", features = ["NSApplication", "NSResponder", "NSWindow", "NSGraphics"] }
+objc2-foundation = { version = "0.2", features = ["NSArray"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = "0.18"

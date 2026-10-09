@@ -155,6 +155,19 @@ fn lerp_pos(a: Pos2, b: Pos2, k: f32) -> Pos2 {
     pos2(lerp(a.x, b.x, k), lerp(a.y, b.y, k))
 }
 
+/// The spare room: an empty frame with a "+" and "Summon an agent" under
+/// it. Lit while its panel is open or the pointer is over it.
+fn draw_summon_room(painter: &Painter, rect: Rect, active: bool, hovered: bool) {
+    let frame = rect.shrink(2.0);
+    let lit = active || hovered;
+    let line = if active { Color32::from_rgb(140, 217, 115) } else if hovered { Color32::from_gray(190) } else { Color32::from_gray(90) };
+    painter.rect_filled(frame, CornerRadius::same(6), Color32::from_rgba_unmultiplied(255, 255, 255, if lit { 10 } else { 4 }));
+    painter.rect_stroke(frame, CornerRadius::same(6), Stroke::new(if active { 2.0_f32 } else { 1.0 }, line), egui::StrokeKind::Inside);
+    let ink = if lit { Color32::from_gray(230) } else { Color32::from_gray(140) };
+    painter.text(frame.center() - vec2(0.0, 14.0), Align2::CENTER_CENTER, "+", FontId::monospace(56.0), ink);
+    painter.text(frame.center() + vec2(0.0, 34.0), Align2::CENTER_CENTER, tr("Invocar un agente"), FontId::monospace(13.0), ink);
+}
+
 /// Draw a sprite centred at `center`, optionally mirrored and rotated.
 pub fn draw_sprite(painter: &Painter, sprite: Sprite, center: Pos2, size: Vec2, flip_x: bool, angle: f32, tint: Color32) {
     draw_anchored(painter, sprite, center, size, vec2(0.5, 0.5), flip_x, angle, tint);
@@ -1297,6 +1310,8 @@ fn cover_corners(painter: &Painter, rect: Rect, radius: f32, color: Color32) {
 pub struct SceneResponse {
     pub clicked: Option<String>,
     pub finish: Option<String>,
+    /// The spare "+" room was clicked.
+    pub summon: bool,
 }
 
 enum ScrollRequest {
@@ -1313,6 +1328,10 @@ pub struct Scene {
     pub selected: Option<String>,
     pub reduced_motion: bool,
     pub empty_text: String,
+    /// A spare room after the last one, with a "+" to summon an agent.
+    pub summon_tile: bool,
+    /// The summon panel is open: the spare room is drawn as selected.
+    pub summoning: bool,
     seeds: u32,
     clock: f32,
     last_time: Option<f64>,
@@ -1328,6 +1347,8 @@ impl Scene {
             selected: None,
             reduced_motion: false,
             empty_text: tr("Sin agentes en la sesión"),
+            summon_tile: false,
+            summoning: false,
             seeds: 7,
             clock: 0.0,
             last_time: None,
@@ -1362,9 +1383,13 @@ impl Scene {
         }
     }
 
+    fn slots(&self) -> usize {
+        self.order.len() + usize::from(self.summon_tile)
+    }
+
     pub fn content_height(&self, width: f32) -> f32 {
         let columns = columns_fitting(width);
-        let lines = (self.order.len() + columns - 1) / columns;
+        let lines = (self.slots() + columns - 1) / columns;
         TOP_PAD + lines as f32 * ROW_H + lines.saturating_sub(1) as f32 * GAP + BOTTOM_PAD
     }
 
@@ -1374,7 +1399,7 @@ impl Scene {
         let dt = match self.last_time { Some(last) if !self.reduced_motion => ((now - last) as f32).clamp(0.0, 0.1), _ => 0.0 };
         self.last_time = Some(now);
         self.clock += dt;
-        let mut response = SceneResponse { clicked: None, finish: None };
+        let mut response = SceneResponse { clicked: None, finish: None, summon: false };
         let width = ui.available_width();
         let columns = columns_fitting(width);
         let gap = GAP.max((width - columns as f32 * ROW_W) / (columns + 1) as f32);
@@ -1386,7 +1411,7 @@ impl Scene {
             .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded)
             .show(ui, |ui| {
                 let (content, _) = ui.allocate_exact_size(vec2(width, height.max(ui.available_height())), egui::Sense::hover());
-                if self.order.is_empty() {
+                if self.order.is_empty() && !self.summon_tile {
                     ui.painter().text(content.center(), Align2::CENTER_CENTER, &self.empty_text, FontId::monospace(16.0), Color32::from_gray(128));
                 }
                 if matches!(scroll_request, Some(ScrollRequest::Top)) {
@@ -1426,6 +1451,14 @@ impl Scene {
                             ui.close_menu();
                         }
                     });
+                }
+                if self.summon_tile {
+                    let index = order.len();
+                    let at = pos2(gap + (index % columns) as f32 * (ROW_W + gap), TOP_PAD + (index / columns) as f32 * (ROW_H + GAP));
+                    let rect = Rect::from_min_size(content.min + at.to_vec2(), vec2(ROW_W, ROW_H));
+                    let hit = ui.interact(rect, ui.id().with("summon-room"), egui::Sense::click());
+                    draw_summon_room(ui.painter(), rect, self.summoning, hit.hovered());
+                    if hit.clicked() { response.summon = true; }
                 }
             });
         // Rooms hidden under the fold: a small badge, which scrolls to them.
