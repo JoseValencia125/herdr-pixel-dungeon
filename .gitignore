@@ -10,3 +10,4 @@ build/
 *.app/
 *.dmg
 *.zip
+/target/
