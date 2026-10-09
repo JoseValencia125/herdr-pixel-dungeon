@@ -224,6 +224,19 @@ private func activeSubagentFiles(session: String, within seconds: TimeInterval) 
     return []
 }
 
+/// What the dungeon should say about its link to Herdr, if anything: lost
+/// (an error, red) or stale (no fresh data for a while, amber), with how
+/// long ago the last good update was. Nil while all is well.
+func connectionNote(error: String?, updated: Date?, now: Date = Date(), staleAfter: TimeInterval = 5) -> (text: String, lost: Bool)? {
+    let age = updated.map { now.timeIntervalSince($0) }
+    let ago = age.map { $0 < 90 ? tr("hace %ld s", Int($0)) : tr("hace %ld min", Int($0 / 60)) }
+    if error != nil {
+        return (tr("Herdr desconectado") + (ago.map { " · " + tr("última actualización %@", $0) } ?? ""), true)
+    }
+    guard let age = age, let ago = ago, age >= staleAfter else { return nil }
+    return (tr("Datos sin actualizar · última actualización %@", ago), false)
+}
+
 /// Which rooms the HUD's state chips let through.
 enum StatusFilter: String, CaseIterable {
     case all, blocked, working, idle, done

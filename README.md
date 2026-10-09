@@ -71,7 +71,7 @@ Each harness has its own classic hero, coloured after the tool's brand (no logos
 - Native SpriteKit animations and crisp nearest-neighbor sprites: the hero types, hammers, jumps on the rug when it needs you, celebrates or sleeps depending on the room.
 - Search, state filters, agent selection, project, pane, directory and terminal title.
 - Latest status change, counts and menu-bar attention indicator.
-- Explicit stale-data indication and automatic reconnection.
+- Explicit connection state: when Herdr is unreachable or its data stops updating, a banner over the rooms says so with the time since the last good update, and the last known rooms stay on screen, faded, while the app keeps reconnecting.
 - Animation pause and macOS Reduce Motion support.
 - Artist credits and licenses accessible from the app.
 

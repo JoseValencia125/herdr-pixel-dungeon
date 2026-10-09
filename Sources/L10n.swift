@@ -101,6 +101,16 @@ enum L10n {
         "Registro de actividad": ["Activity log", "Journal d’activité", "Registro attività", "Registro de atividade"],
         "Registro de la guild": ["Guild log", "Journal de la guilde", "Registro della gilda", "Registro da guilda"],
         "Aún no pasa nada.": ["Nothing has happened yet.", "Rien ne s’est encore passé.", "Non è ancora successo nulla.", "Nada aconteceu ainda."],
+        // Connection
+        "Esperando a Herdr…": ["Waiting for Herdr…", "En attente de Herdr…", "In attesa di Herdr…", "Aguardando o Herdr…"],
+        "hace %ld s": ["%ld s ago", "il y a %ld s", "%ld s fa", "há %ld s"],
+        "hace %ld min": ["%ld min ago", "il y a %ld min", "%ld min fa", "há %ld min"],
+        "Herdr desconectado": ["Herdr disconnected", "Herdr déconnecté", "Herdr disconnesso", "Herdr desconectado"],
+        "última actualización %@": ["last update %@", "dernière mise à jour %@", "ultimo aggiornamento %@", "última atualização %@"],
+        "Datos sin actualizar · última actualización %@": ["Data not updating · last update %@", "Données figées · dernière mise à jour %@",
+                                                            "Dati non aggiornati · ultimo aggiornamento %@", "Dados sem atualizar · última atualização %@"],
+        "Reintentando la conexión automáticamente.": ["Retrying the connection automatically.", "Reconnexion automatique en cours.", "Riprovo la connessione automaticamente.", "Tentando reconectar automaticamente."],
+        "Herdr no ha entregado datos nuevos.": ["Herdr has not sent new data.", "Herdr n’a pas envoyé de nouvelles données.", "Herdr non ha inviato dati nuovi.", "O Herdr não enviou dados novos."],
         // Demo activity titles
         "Construyendo la página de ajustes": ["Building the settings page", "Construction de la page des réglages", "Costruisco la pagina delle impostazioni", "Construindo a página de ajustes"],
         "Revisando las pruebas": ["Reviewing the tests", "Révision des tests", "Rivedo i test", "Revisando os testes"],

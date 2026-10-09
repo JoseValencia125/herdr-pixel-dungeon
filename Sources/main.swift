@@ -290,8 +290,12 @@ func selfTest() throws {
     precondition(filterAgents(pool,status:.all,query:"").count==2 && filterAgents(pool,status:.blocked,query:"").map(\.id)==["1"] && filterAgents(pool,status:.idle,query:"").isEmpty)
     precondition(filterAgents(pool,status:.all,query:"CARRITO").map(\.id)==["1"] && filterAgents(pool,status:.all,query:"codex").map(\.id)==["2"] && filterAgents(pool,status:.all,query:"web shop").map(\.id)==["1"])
     precondition(filterAgents([pool[0],branched],status:.all,query:"pagos").map(\.id)==["2"] && filterAgents(pool,status:.all,query:"cárrito shop").map(\.id)==["1"] && filterAgents(pool,status:.working,query:"shop").isEmpty)
+    let now=Date();precondition(connectionNote(error:nil,updated:now,now:now)==nil && connectionNote(error:nil,updated:nil,now:now)==nil)
+    let stale=connectionNote(error:nil,updated:now.addingTimeInterval(-14),now:now);precondition(stale?.lost==false && stale!.text.contains("14"))
+    let lost=connectionNote(error:"x",updated:now.addingTimeInterval(-200),now:now);precondition(lost?.lost==true && lost!.text.contains("3"))
+    precondition(connectionNote(error:"x",updated:nil,now:now)?.text==tr("Herdr desconectado"))
     var fired=false;let item=ClosureMenuItem(title:"x"){fired=true};_=(item.target as AnyObject).perform(item.action,with:item);precondition(fired,"Context menu item did not fire")
-    print("PASS: snapshot states, filtering, empty/error handling, monitor transitions, room art, heroes, subagent sessions, subagents keep agents busy, tool actions, translations, git branch, sound alerts + prefs, notifications + prefs, chat selection, question options, filters and search, context menu, question extraction, \(files.count) bundled sprites")
+    print("PASS: snapshot states, filtering, empty/error handling, monitor transitions, room art, heroes, subagent sessions, subagents keep agents busy, tool actions, translations, git branch, sound alerts + prefs, notifications + prefs, chat selection, question options, filters and search, connection notes, context menu, question extraction, \(files.count) bundled sprites")
 }
 
 if CommandLine.arguments.contains("--self-test") {

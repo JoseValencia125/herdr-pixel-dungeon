@@ -18,9 +18,16 @@ struct Dashboard: View {
     var body: some View {
         ZStack(alignment:.topTrailing) {
             VStack(spacing:0) {
-                SpriteView(scene:world.scene,preferredFramesPerSecond:30,options:[.ignoresSiblingOrder])
-                    .frame(maxWidth:.infinity,maxHeight:.infinity)
-                    .background(Color(red:0.05,green:0.06,blue:0.065))
+                TimelineView(.periodic(from:.now,by:1)) { clock in
+                    let note = connectionNote(error:monitor.error,updated:monitor.updated,now:clock.date)
+                    SpriteView(scene:world.scene,preferredFramesPerSecond:30,options:[.ignoresSiblingOrder])
+                        .frame(maxWidth:.infinity,maxHeight:.infinity)
+                        .background(Color(red:0.05,green:0.06,blue:0.065))
+                        // The last known rooms stay, faded, while the data is not live.
+                        .saturation(note == nil ? 1 : 0.35)
+                        .opacity(note == nil ? 1 : 0.75)
+                        .overlay(alignment:.top) { if let note = note { ConnectionBanner(text:note.text,lost:note.lost) } }
+                }
                 if monitor.showsHUD { HUD(monitor:monitor,onLog:{showLog.toggle()}) }
                 if let agent = monitor.agents.first(where:{$0.id == monitor.selected}) {
                     ChatPanel(monitor:monitor,agent:agent,onClose:{monitor.selected=nil})
@@ -64,6 +71,7 @@ struct Dashboard: View {
         .onChange(of:monitor.agents) { _ in sync() }
         .onChange(of:monitor.filter) { _ in sync() }
         .onChange(of:monitor.query) { _ in sync() }
+        .onChange(of:monitor.error) { _ in sync() }
         .onChange(of:monitor.selected) { world.scene.selected=$0 }
         .onChange(of:paused) { world.scene.reducedMotion=$0 }
     }
@@ -71,7 +79,8 @@ struct Dashboard: View {
     /// every agent, so filtering never makes the widget jump in width.
     private func sync() {
         world.scene.columns = DungeonScene.columns(for:monitor.agents.count)
-        world.scene.emptyText = monitor.agents.isEmpty ? tr("Sin agentes en la sesión") : tr("Ningún agente coincide")
+        world.scene.emptyText = !monitor.agents.isEmpty ? tr("Ningún agente coincide")
+            : monitor.error != nil ? tr("Esperando a Herdr…") : tr("Sin agentes en la sesión")
         world.scene.sync(monitor.visibleAgents)
     }
 
@@ -165,6 +174,25 @@ struct ActivityLog: View {
         case "message": return .blue
         default: return Color(red:0.45,green:0.29,blue:0.14)
         }
+    }
+}
+
+/// A pixel banner over the rooms while Herdr is unreachable or the data is
+/// stale; reconnection keeps being retried in the background.
+struct ConnectionBanner: View {
+    let text: String
+    let lost: Bool
+    var body: some View {
+        HStack(spacing:6) {
+            Image(systemName:lost ? "bolt.horizontal.circle.fill" : "hourglass").font(.system(size:11,weight:.bold))
+            Text(text).font(.system(size:10,weight:.bold,design:.monospaced)).lineLimit(1).minimumScaleFactor(0.7)
+        }
+        .foregroundStyle(Color.white)
+        .padding(.horizontal,8).frame(height:22)
+        .background((lost ? Color(red:0.6,green:0.12,blue:0.14) : Color(red:0.55,green:0.36,blue:0.08)).opacity(0.95),in:RoundedRectangle(cornerRadius:3))
+        .overlay(RoundedRectangle(cornerRadius:3).stroke(Color.black.opacity(0.6),lineWidth:2))
+        .padding(.top,16).padding(.horizontal,10)
+        .help(lost ? tr("Reintentando la conexión automáticamente.") : tr("Herdr no ha entregado datos nuevos."))
     }
 }
 
