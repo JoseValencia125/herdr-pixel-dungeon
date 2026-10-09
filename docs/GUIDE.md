@@ -1,0 +1,115 @@
+# Herdr Pixel Dungeon — guide
+
+Everything the README leaves out: how the dungeon reads the agents, what each panel does, the menu, configuration, privacy and the standalone mode.
+
+## How the rooms are kept current
+
+The app keeps one connection to Herdr's socket subscribed to its events (`events.subscribe`: each agent pane's status, panes appearing, changing or closing, workspaces renamed or closed), so a change shows up the moment it happens. `herdr api snapshot` runs only to bootstrap, after a structural change, once a minute to reconcile, and — if the event connection drops — every second while it reconnects. Local enrichment (git branch, background jobs, subagents, tools) is read from files each second without starting processes.
+
+When Herdr is unreachable or its data stops updating, a banner over the rooms says so with the time since the last good update; the last known rooms stay on screen, faded, while the app keeps reconnecting.
+
+Activity means **the title reported by the terminal**, not an inferred summary. Animation represents state, not tool calls or completion percentage. Agents outside the selected Herdr session are not included.
+
+## What a working agent does
+
+For Claude Code agents the hero goes to the station that matches the last tool the agent called: it reads a book for `Read`, `Grep`, `Glob`, `WebSearch` and `WebFetch`, forges at the anvil for `Edit` and `Write`, brews potions for `Bash`, summons in a magic circle for `Task` (subagents), studies a scroll for todo lists and plans, and types at the laptop while thinking or writing.
+
+Codex and Kiro agents do the same from their own session logs, matched by the session ID Herdr reports: Codex's rollout (`~/.codex/sessions/…/rollout-…-<id>.jsonl`; a shell command that only looks at files counts as reading, `apply_patch` as forging, `update_plan` as planning) and Kiro's session (`~/.kiro/sessions/cli/<id>.jsonl`). Only tool names and commands' first word are read. Harnesses whose activity cannot be read make the rounds of every station rather than pretend to know.
+
+## Background sessions
+
+When a Claude Code pane shows its list of background sessions, Herdr reports the pane as idle, or reflects only the highlighted session, even while other sessions keep working. The app also reads each job's `~/.claude/jobs/<id>/state.json` (its live tempo, question and folder only) and gives a Claude Code pane the most urgent state among the sessions started in its folder during the last hour: one waiting for input makes the room *blocked*, one working makes it *working*. Only jobs whose process is still alive count (Claude Code keeps a terminal socket per running job under `/tmp/cc-daemon-<uid>/`), so a job that died while asking something does not keep its room asking for attention.
+
+## Subagents
+
+Herdr does not report subagents, so for Claude Code agents the app reads the transcripts Claude Code writes under `~/.claude/projects/<project>/<session>/subagents/`, matched by the session ID in Herdr's snapshot. A subagent counts as active while its transcript changed in the last 30 seconds. Active subagents appear as small heroes of the same harness, with a count in the room's title; each goes to the station of the last tool in its own transcript and walks to a new one when it changes tool. Other harnesses show no subagents.
+
+## Chat
+
+Click a room to open a chat panel for that agent: the last lines of its terminal (re-flowed into paragraphs), a box to send a message or the answer to a question, and buttons to accept or decline a permission prompt, interrupt the agent (esc), or focus its pane in Herdr.
+
+While the agent is asking something with numbered options, ↑ and ↓ (or a click) highlight an option in the panel and put its text in the box; Enter then picks it — moving the agent's own menu to that option — or sends the text when the question is plain text. With nothing typed, Enter picks the option its terminal already highlights.
+
+Right-click a room and choose **End agent** to type `/exit` into its chat after a confirmation. A working or asking agent gets esc first.
+
+Opening a chat while the widget is one room wide widens it to two rooms until the chat closes. The chat takes the keyboard only when it opens, so leaving it open never steals typing from another app.
+
+## Summon an agent
+
+The **+** button (top-right on hover, and in the bar under the rooms) opens a panel under the rooms: pick a harness (claude, codex, gemini, kiro, opencode, cursor, copilot, amp), a folder — one your agents already work in, or any other — and an optional first prompt, then **Summon** (⌘⏎ / Ctrl+Enter). Herdr creates a workspace in that folder (`herdr workspace create`), starts the agent in its shell (`herdr agent start`) and sends the prompt (`herdr agent prompt`). If the agent stops at a startup question (trusting the folder, a login…), its chat opens so you can answer, and the prompt is sent once it is ready. The harness and folder are remembered.
+
+## Sounds and notifications
+
+A soft two-note chime plays when an agent needs help and a gentle rising one when it finishes (bell-like tones synthesized in the app). Turn either off, mute everything, or hear them with **Play the sounds**, from the widget or the menu.
+
+When an agent starts needing help the app also posts a desktop notification (Notification Center on macOS, the notification daemon on Linux) with the question when it knows it; a finished agent can notify too. On Linux, clicking the banner brings up the dungeon with that agent's chat open. The **Notifications** menu turns them on or off per moment.
+
+## Activity log
+
+The scroll button unrolls the guild's log on a parchment: agents joining and leaving, state changes, subagents starting and the messages you sent, newest first with the time. It keeps the last 40 lines in memory only.
+
+## Many agents
+
+Resize the widget from its edges or the grip in its bottom-right corner: rooms wrap into as many columns as fit, and the window snaps to whole rooms. It starts at two columns and up to four rows; the size you pick is remembered, the smallest is one room. With fewer agents than columns it narrows (a single agent is one square), and it grows with the agents up to your row count; past that, scroll with the trackpad or wheel — a small badge counts the rooms hidden below or above and jumps to them. An agent that starts needing attention takes the first room and the view scrolls to it.
+
+With three or more agents a bar under the rooms shows one chip per state with its count — click one to show only those rooms (the red **!** chip stays lit while anyone needs you) — and a search box (its own row) that matches project, harness, branch, folder and activity, ignoring case and accents. The chosen chip is remembered.
+
+## Text size
+
+⌘+ / ⌘- (Ctrl on Linux) make the panels' text bigger or smaller, ⌘0 resets it; the menu's **Text size** does the same. The size is remembered.
+
+## The status item and its menu
+
+Close or minimize the window to keep monitoring from the menu bar (macOS) or the tray (Linux), where a pixel knight's helm marks the app; its tooltip counts the agents needing attention. A left click shows or hides the window; the menu has:
+
+- **Show / hide**, **Move back to the corner**, **Always on top** (on by default), **Open at login** (a LaunchAgent on macOS, an autostart entry on Linux).
+- **Sounds** and **Notifications**, each with per-moment switches.
+- **Text size**.
+- **Herdr session**: Herdr's sessions (`herdr session list`), to switch which one the dungeon watches — agents, log and selection start over — remembered; `HERDR_SESSION` still overrides it at launch. **Demo** shows fictional agents without Herdr; live mode never inserts fictional agents.
+- **Open Herdr** and **Open Herdr at startup** (see below).
+
+The widget reopens where you left it, at the size you gave it, and remembers sounds, notifications, the session, the state filter and the text size, in `settings.json` under `~/Library/Application Support/herdr-pixel-dungeon` (macOS) or `~/.config/herdr-pixel-dungeon` (Linux).
+
+## Languages
+
+Spanish, English, French, Italian and Portuguese, following the system locale (macOS: Language & Region; Linux: `LANG`/`LC_MESSAGES`); other languages fall back to English. `HPD_LANG=en` forces one. Translations live in `src/l10n.rs`.
+
+## Configuration
+
+Monitors the default local session. Environment variables:
+
+| Variable | Effect |
+| --- | --- |
+| `HERDR_SESSION` | Watch a named Herdr session. |
+| `HERDR_BIN` | Path to the `herdr` executable. Discovery otherwise: `~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin`, then `PATH` (GUI launches may have a different `PATH` from your shell). |
+| `HPD_LANG` | Force a UI language (`es`, `en`, `fr`, `it`, `pt`). |
+| `HPD_REDUCE_MOTION=1` | Stop the animations (macOS Reduce Motion is honoured automatically). |
+| `HPD_NO_HERDR=1` | Pretend Herdr is not installed, to try the standalone viewer. |
+
+Command-line flags: `--demo` (fictional agents), `--diagnose` (print what Herdr reports, or the standalone scan), `--self-test`.
+
+## Verify
+
+```sh
+./scripts/build.sh
+./target/release/herdr-pixel-dungeon --self-test
+./target/release/herdr-pixel-dungeon --diagnose
+open 'build/Herdr Pixel Dungeon.app' --args --demo     # macOS
+./build/herdr-pixel-dungeon --demo                      # Linux
+```
+
+`cargo test` runs the same checks as `--self-test`: snapshot states, invalid/empty replies, monitor transitions, subagents, tool actions, translations, sound and notification settings, chat selection, question options, filters, connection notes, sessions, Herdr events and error codes, background jobs, the standalone heuristics, git branches, hero mapping and bundled PNG decoding. `--diagnose` prints live agent data; review it before sharing publicly.
+
+## Privacy
+
+The app reads Herdr's snapshot and events. It only acts on a terminal when you use the chat or summon panels: then it reads the agent's recent output (`herdr agent read`) and sends exactly what you typed or clicked (`herdr agent prompt`, `send-keys`, `pane send-text`, `agent focus`, `workspace create`, `agent start`). No network listener, telemetry or credential access. It reads the state and folder of Claude Code background jobs from `~/.claude/jobs/*/state.json`, and from Claude Code's, Codex's and Kiro's local transcripts: modification times, message types and the name of the last tool called (never tool inputs or outputs), plus — for a question or the standalone viewer — the text of the agent's last message, which is only displayed. Agent data remains in memory. External links open only when clicked. Demo data contains no live user sessions.
+
+## Without Herdr (optional)
+
+Herdr is what lets the dungeon talk to the agents: it owns their terminals, reports each pane's state and types into it. Without it (or while its server is down) the app works as a **read-only viewer**: it finds the agents running in any terminal by their processes (the harnesses Herdr knows) and infers their state from the files they write — Claude Code and Codex transcripts give working, waiting, and a tool call waiting for permission; the last prompt becomes the room's activity line. The chat shows the agent's last reply but cannot send anything, and there is no summoning.
+
+A banner over the rooms offers **Install Herdr** (its official installer, `curl -fsSL https://herdr.dev/install.sh | sh`), **Open Herdr** (a terminal running `herdr`, which leaves its server up) or **Carry on without Herdr**; the menu's **Open Herdr at startup** does the opening for you. Agents appear in the full dungeon only when they run inside Herdr.
+
+## Support
+
+If the dungeon is useful to you, you can [sponsor the project on GitHub](https://github.com/sponsors/JoseValencia125). Sponsorships help pay for the time spent drawing new heroes and rooms and keeping up with Herdr releases.
