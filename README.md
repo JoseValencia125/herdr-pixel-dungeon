@@ -27,7 +27,7 @@ open "$HOME/Applications/Herdr Pixel Dungeon.app"
 
 Uses only Apple frameworks; no third-party packages. The build produces a locally ad-hoc-signed app for your Mac's architecture. It is not Developer ID signed or notarized.
 
-Close the window to keep monitoring from the menu bar, where a pixel knight helmet marks the app. Use its menu to reopen the window, set sounds or quit. Enable **Demo** to try fictional agents without Herdr. Live mode never inserts fictional agents.
+Close the window to keep monitoring from the menu bar, where a pixel sword marks the app. Use its menu to reopen the window, set sounds or quit. Enable **Demo** to try fictional agents without Herdr. Live mode never inserts fictional agents.
 
 ## States and rooms
 

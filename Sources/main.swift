@@ -1,24 +1,26 @@
 import Cocoa
 import SwiftUI
 
-/// Menu bar icon: a pixel knight helmet with a plume, drawn one square per
-/// pixel as a template image so macOS tints it for light and dark bars.
+/// Menu bar icon: a pixel sword, drawn one square per pixel as a template
+/// image so macOS tints it for light and dark bars.
 func menuBarIcon() -> NSImage {
     let rows = [
+        "..............##",
+        ".............###",
+        "............###.",
+        "...........###..",
         "..........###...",
-        "........#####...",
-        ".......####.....",
-        "....#######.....",
-        "...##########...",
-        "..############..",
-        "..############..",
-        "..##........##..",
-        "..#####..#####..",
-        "..#####..#####..",
-        "..#####..#####..",
-        "..############..",
-        "...##########...",
-        "....########....",
+        ".........###....",
+        "........###.....",
+        "..##...###......",
+        "..###.###.......",
+        "...#####........",
+        "....###.........",
+        "...#####........",
+        "..###.###.......",
+        ".###...##.......",
+        "###.............",
+        "##..............",
     ]
     let image = NSImage(size: NSSize(width: 16, height: rows.count), flipped: true) { _ in
         NSColor.black.setFill()
