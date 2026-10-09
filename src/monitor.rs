@@ -613,10 +613,18 @@ impl Monitor {
                     }
                     let created = run_herdr(&["workspace", "create", "--cwd", &path, "--label", &label, "--no-focus"], &session, Duration::from_secs(8))?;
                     let pane = root_pane(&created).ok_or_else(|| MonitorError::Message(tr("Herdr no devolvió el panel nuevo.")))?;
-                    match run_herdr(&["agent", "start", &name, "--kind", &kind, "--pane", &pane, "--timeout", "60000"], &session, Duration::from_secs(65)) {
+                    match start_agent(&session, &name, &kind, &pane) {
                         Ok(_) => {}
                         Err(e) if e.code() == Some("agent_not_ready") => waiting_pane = Some(pane.clone()),
-                        Err(_) => return Err(MonitorError::Message(trf("{} no arrancó. Revisa que esté instalado.", &[&kind]))),
+                        Err(e) => {
+                            // Nothing runs in the new workspace: close it instead of leaving an empty shell behind.
+                            if let Some(workspace) = created_workspace(&created) {
+                                let _ = run_herdr(&["workspace", "close", &workspace], &session, Duration::from_secs(4));
+                            }
+                            let why = e.text();
+                            let base = trf("{} no arrancó. Revisa que esté instalado.", &[&kind]);
+                            return Err(MonitorError::Message(if why.is_empty() { base } else { format!("{base} ({why})") }));
+                        }
                     }
                     if waiting_pane.is_none() && !text.is_empty() {
                         match run_herdr(&["agent", "prompt", &name, &text], &session, Duration::from_secs(10)) {
@@ -731,6 +739,20 @@ impl Monitor {
             wake();
         });
         rx
+    }
+}
+
+/// `herdr agent start` in a pane that was created a moment ago. The pane's
+/// shell takes a few hundred milliseconds to reach its prompt and Herdr
+/// answers `agent_pane_busy` ("not an available shell") until then, so that
+/// code is retried for up to ten seconds; any other answer is final.
+fn start_agent(session: &str, name: &str, kind: &str, pane: &str) -> Result<Vec<u8>, MonitorError> {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        match run_herdr(&["agent", "start", name, "--kind", kind, "--pane", pane, "--timeout", "60000"], session, Duration::from_secs(65)) {
+            Err(e) if e.code() == Some("agent_pane_busy") && Instant::now() < deadline => std::thread::sleep(Duration::from_millis(250)),
+            other => return other,
+        }
     }
 }
 

@@ -677,6 +677,12 @@ pub fn root_pane(data: &[u8]) -> Option<String> {
     }
 }
 
+/// The workspace id in a `herdr workspace create` reply.
+pub fn created_workspace(data: &[u8]) -> Option<String> {
+    let root: Value = serde_json::from_slice(data).ok()?;
+    root.get("result")?.get("workspace")?.get("workspace_id")?.as_str().map(str::to_string)
+}
+
 /// A Herdr session, from `herdr session list --json`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HerdrSession {
