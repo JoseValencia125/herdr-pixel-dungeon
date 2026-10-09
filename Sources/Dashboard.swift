@@ -45,6 +45,10 @@ struct Dashboard: View {
             }
             DragHandle()
                 .frame(maxWidth:.infinity,alignment:.top)
+            ResizeGrip()
+                .frame(width:14,height:14)
+                .opacity(hovering ? 1 : 0)
+                .frame(maxWidth:.infinity,maxHeight:.infinity,alignment:.bottomTrailing)
         }
         .preferredColorScheme(.dark)
         .onHover { hovering = $0 }
@@ -78,7 +82,6 @@ struct Dashboard: View {
     /// Show the rooms that pass the HUD's filter. The column count follows
     /// every agent, so filtering never makes the widget jump in width.
     private func sync() {
-        world.scene.columns = DungeonScene.columns(for:monitor.agents.count)
         world.scene.emptyText = !monitor.agents.isEmpty ? tr("Ningún agente coincide")
             : monitor.error != nil ? tr("Esperando a Herdr…") : tr("Sin agentes en la sesión")
         world.scene.sync(monitor.visibleAgents)
@@ -505,6 +508,42 @@ private struct WindowDragArea: NSViewRepresentable {
         override func resetCursorRects() { addCursorRect(bounds, cursor: .openHand) }
     }
     func makeNSView(context: Context) -> NSView { DragView() }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+}
+
+/// Pixel grip in the bottom-right corner: drag it to resize the widget
+/// (the edges work too). The app delegate snaps the result to whole rooms.
+struct ResizeGrip: NSViewRepresentable {
+    static let began = Notification.Name("ResizeGrip.began")
+    static let ended = Notification.Name("ResizeGrip.ended")
+
+    final class GripView: NSView {
+        private var start: (frame: NSRect, mouse: NSPoint)?
+        override var mouseDownCanMoveWindow: Bool { false }
+        override func mouseDown(with event: NSEvent) {
+            guard let window = window else { return }
+            start = (window.frame, NSEvent.mouseLocation)
+            NotificationCenter.default.post(name: ResizeGrip.began, object: nil)
+        }
+        override func mouseDragged(with event: NSEvent) {
+            guard let window = window, let start = start else { return }
+            let mouse = NSEvent.mouseLocation
+            let width = max(window.minSize.width, start.frame.width + mouse.x - start.mouse.x)
+            let height = max(window.minSize.height, start.frame.height - (mouse.y - start.mouse.y))
+            window.setFrame(NSRect(x: start.frame.minX, y: start.frame.maxY - height, width: width, height: height), display: true)
+        }
+        override func mouseUp(with event: NSEvent) {
+            start = nil
+            NotificationCenter.default.post(name: ResizeGrip.ended, object: nil)
+        }
+        override func draw(_ dirtyRect: NSRect) {
+            // Three steps of pixels down the diagonal.
+            NSColor(white: 1, alpha: 0.55).setFill()
+            for (x, y) in [(10, 2), (6, 2), (10, 6), (2, 2), (6, 6), (10, 10)] { NSRect(x: x, y: y, width: 2, height: 2).fill() }
+        }
+        override func resetCursorRects() { addCursorRect(bounds, cursor: .crosshair) }
+    }
+    func makeNSView(context: Context) -> NSView { GripView() }
     func updateNSView(_ nsView: NSView, context: Context) {}
 }
 

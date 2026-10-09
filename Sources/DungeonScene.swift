@@ -929,9 +929,6 @@ final class DungeonScene: SKScene {
     private var order: [String] = []
     private let container = SKNode()
     private let emptyLabel = SKLabelNode(fontNamed: "Menlo-Bold")
-    /// Columns of rooms; set from the total agent count so a filter that
-    /// leaves one room does not change the layout.
-    var columns = 2 { didSet { if columns != oldValue { layout() } } }
     var emptyText = tr("Sin agentes en la sesión") { didSet { emptyLabel.text = emptyText } }
     /// How far the rooms are scrolled up, in points, when they do not fit.
     private var scroll: CGFloat = 0
@@ -1278,7 +1275,9 @@ final class DungeonScene: SKScene {
 
     /// Stack rows vertically, attention on top, filling the widget from the top.
     /// A lone agent gets a single room; otherwise two columns.
-    static func columns(for count: Int) -> Int { count == 1 ? 1 : 2 }
+    /// Rooms wrap like a flex row: as many columns as fit the width.
+    static func columns(fitting width: CGFloat) -> Int { max(1, Int((width - gap + 0.5) / (AgentRow.width + gap))) }
+    static func width(columns: Int) -> CGFloat { CGFloat(columns) * AgentRow.width + CGFloat(columns + 1) * gap }
     static let gap: CGFloat = 6
     static let topPad: CGFloat = 14   // room for the drag handle
 
@@ -1286,6 +1285,7 @@ final class DungeonScene: SKScene {
     /// filling from the top-left.
     private func layout() {
         let cellW = AgentRow.width, cellH = AgentRow.height
+        let columns = DungeonScene.columns(fitting: size.width)
         let gap = max(DungeonScene.gap, (size.width - CGFloat(columns) * cellW) / CGFloat(columns + 1))
         emptyLabel.position = CGPoint(x: size.width / 2, y: size.height / 2)
 

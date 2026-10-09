@@ -46,9 +46,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var window: WidgetPanel!
     var status: NSStatusItem!
 
-    /// Width of the widget with two columns of rooms, in points. Its height
-    /// follows the number of agents.
-    let side: CGFloat = 460
+    /// Columns and rows of rooms the user sized the widget to; resizing it
+    /// (edges or the corner grip) snaps to whole rooms. With fewer agents
+    /// than columns it narrows (one agent is one square); past `rows` rows
+    /// the rooms scroll.
+    var columns = max(1, UserDefaults.standard.object(forKey: "layout.columns") as? Int ?? 2) {
+        didSet { UserDefaults.standard.set(columns, forKey: "layout.columns") }
+    }
+    var rows = max(1, UserDefaults.standard.object(forKey: "layout.rows") as? Int ?? 4) {
+        didSet { UserDefaults.standard.set(rows, forKey: "layout.rows") }
+    }
+    private var resizeStart: NSRect?
     /// Room above the first row (drag handle) and below the last one.
     let topInset: CGFloat = 14
     let bottomInset: CGFloat = 6
@@ -84,8 +92,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         notifier.start()
 
         // Square, borderless, floating widget window.
-        window = WidgetPanel(contentRect: NSRect(x: 0, y: 0, width: side, height: side),
-                             styleMask: [.borderless, .nonactivatingPanel],
+        window = WidgetPanel(contentRect: NSRect(x: 0, y: 0, width: DungeonScene.width(columns: 2), height: 400),
+                             styleMask: [.borderless, .nonactivatingPanel, .resizable],
                              backing: .buffered, defer: false)
         window.level = .floating
         window.isReleasedWhenClosed = false
@@ -105,38 +113,71 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             content.layer?.backgroundColor = NSColor(red: 0.05, green: 0.06, blue: 0.065, alpha: 1).cgColor
         }
 
+        NotificationCenter.default.addObserver(self, selector: #selector(gripBegan), name: ResizeGrip.began, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(gripEnded), name: ResizeGrip.ended, object: nil)
         if CommandLine.arguments.contains("--demo") { monitor.demo = true }
         anchorToCorner()
         window.orderFrontRegardless()
         monitor.start()
     }
 
-    /// Height that shows every agent row (at least one), capped to the screen.
+    /// Columns shown: the user's, but never more than there are agents.
+    var shownColumns: Int { min(columns, max(1, monitor.agents.count)) }
+
+    /// Height of everything that is not rooms: insets, HUD and chat panel.
+    var chrome: CGFloat {
+        topInset + bottomInset + (monitor.selected == nil ? 0 : ChatPanel.height) + (monitor.showsHUD ? HUD.height : 0)
+    }
+
+    /// Height that shows the agents' rows, up to the user's row count (at
+    /// least one), capped to the screen.
     func targetHeight() -> CGFloat {
-        let columns = DungeonScene.columns(for: monitor.agents.count)
-        let rows = CGFloat(max(1, (monitor.visibleAgents.count + columns - 1) / columns))
-        let panel = (monitor.selected == nil ? 0 : ChatPanel.height) + (monitor.showsHUD ? HUD.height : 0)
-        let wanted = topInset + rows * AgentRow.height + (rows - 1) * DungeonScene.gap + bottomInset + panel
+        let needed = max(1, (monitor.visibleAgents.count + shownColumns - 1) / shownColumns)
+        let shown = CGFloat(min(needed, rows))
+        let wanted = chrome + shown * AgentRow.height + (shown - 1) * DungeonScene.gap
         let limit = (window.screen ?? NSScreen.main)?.visibleFrame.height ?? wanted
         return min(wanted, limit - 2 * margin)
     }
 
-    /// One room wide for a lone agent, two otherwise.
-    func targetWidth() -> CGFloat {
-        DungeonScene.columns(for: monitor.agents.count) == 1 ? AgentRow.width + 2 * DungeonScene.gap : side
-    }
+    func targetWidth() -> CGFloat { DungeonScene.width(columns: shownColumns) }
 
-    /// Resize the window with the agent count, keeping its top-right corner
-    /// where the user put it.
-    func fitSize() {
+    /// Resize the window to whole rooms. Changes in the agent count keep the
+    /// top-right corner where the user put it; a resize by the user keeps
+    /// the corner opposite the one dragged (the top-left for the grip).
+    func fitSize(anchorLeft: Bool = false) {
+        window.minSize = NSSize(width: DungeonScene.width(columns: 1), height: chrome + AgentRow.height)
+        guard resizeStart == nil, !window.inLiveResize else { return }
         let height = targetHeight(), width = targetWidth()
         var frame = window.frame
         guard abs(frame.height - height) > 0.5 || abs(frame.width - width) > 0.5 else { return }
         frame.origin.y = frame.maxY - height
-        frame.origin.x = frame.maxX - width
+        if !anchorLeft { frame.origin.x = frame.maxX - width }
         frame.size = NSSize(width: width, height: height)
         window.setFrame(frame, display: true, animate: window.isVisible)
         window.invalidateShadow()
+    }
+
+    // MARK: Resizing by the user
+
+    func windowWillStartLiveResize(_ notification: Notification) { resizeStart = window.frame }
+    func windowDidEndLiveResize(_ notification: Notification) { endResize(anchorLeft: false) }
+    @objc func gripBegan() { resizeStart = window.frame }
+    @objc func gripEnded() { endResize(anchorLeft: true) }
+
+    /// Snap a resize to whole rooms: the new width picks the columns, the
+    /// new height the rows to show before scrolling. A side left alone keeps
+    /// its setting (fewer agents than rows would otherwise shrink it).
+    private func endResize(anchorLeft: Bool) {
+        guard let start = resizeStart else { return }
+        resizeStart = nil
+        let frame = window.frame
+        if abs(frame.width - start.width) > 1 {
+            columns = min(8, max(1, Int(((frame.width - DungeonScene.gap) / (AgentRow.width + DungeonScene.gap)).rounded())))
+        }
+        if abs(frame.height - start.height) > 1 {
+            rows = max(1, Int(((frame.height - chrome + DungeonScene.gap) / (AgentRow.height + DungeonScene.gap)).rounded()))
+        }
+        fitSize(anchorLeft: anchorLeft || frame.minX == start.minX)
     }
 
     /// Place the widget in the top-right corner, just under the menu bar.
@@ -293,8 +334,10 @@ func selfTest() throws {
     let stale=connectionNote(error:nil,updated:now.addingTimeInterval(-14),now:now);precondition(stale?.lost==false && stale!.text.contains("14"))
     let lost=connectionNote(error:"x",updated:now.addingTimeInterval(-200),now:now);precondition(lost?.lost==true && lost!.text.contains("3"))
     precondition(connectionNote(error:"x",updated:nil,now:now)?.text==tr("Herdr desconectado"))
+    for n in 1...6 { precondition(DungeonScene.columns(fitting:DungeonScene.width(columns:n))==n && DungeonScene.columns(fitting:DungeonScene.width(columns:n)+100)==n, "Flex wrap columns: \(n)") }
+    precondition(DungeonScene.columns(fitting:10)==1 && DungeonScene.width(columns:2)==458)
     var fired=false;let item=ClosureMenuItem(title:"x"){fired=true};_=(item.target as AnyObject).perform(item.action,with:item);precondition(fired,"Context menu item did not fire")
-    print("PASS: snapshot states, filtering, empty/error handling, monitor transitions, room art, heroes, subagent sessions, subagents keep agents busy, tool actions, translations, git branch, sound alerts + prefs, notifications + prefs, chat selection, question options, filters and search, connection notes, context menu, question extraction, \(files.count) bundled sprites")
+    print("PASS: snapshot states, filtering, empty/error handling, monitor transitions, room art, heroes, subagent sessions, subagents keep agents busy, tool actions, translations, git branch, sound alerts + prefs, notifications + prefs, chat selection, question options, filters and search, connection notes, flex-wrap columns, context menu, question extraction, \(files.count) bundled sprites")
 }
 
 if CommandLine.arguments.contains("--self-test") {
