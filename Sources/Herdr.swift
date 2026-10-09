@@ -426,6 +426,9 @@ final class Monitor: ObservableObject {
         onChange?(); refresh()
     }
     func apply(_ next: [Agent]) {
+        // Sort last: background jobs and subagents can change a status after
+        // Herdr's, and whoever needs attention must lead the grid.
+        let next = sortAgents(next)
         let previous = Dictionary(uniqueKeysWithValues: agents.map { ($0.id, $0) })
         let ids = Set(next.map(\.id))
         if updated != nil { let alerts = alertsFor(previous: previous, next: next); if !alerts.isEmpty { onAlerts?(alerts) } }

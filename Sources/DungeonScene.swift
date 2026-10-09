@@ -932,6 +932,7 @@ final class DungeonScene: SKScene {
     var emptyText = tr("Sin agentes en la sesión") { didSet { emptyLabel.text = emptyText } }
     /// How far the rooms are scrolled up, in points, when they do not fit.
     private var scroll: CGFloat = 0
+    private var askingBefore: Set<String> = []
     private var contentHeight: CGFloat = 0
     private let scrollBar = SKShapeNode()
 
@@ -1256,7 +1257,12 @@ final class DungeonScene: SKScene {
             rows.removeValue(forKey: id)
         }
         // Agents arrive already sorted by rank (attention first); keep that order.
+        // Someone new needing attention takes the first room: scroll up to it.
+        let asking = Set(agents.filter { $0.status == "blocked" }.map(\.id))
+        let newlyAsking = !asking.subtracting(askingBefore).isEmpty
+        askingBefore = asking
         order = agents.map(\.id)
+        defer { if newlyAsking && selected == nil { scrollTo(0, animated: true) } }
         emptyLabel.isHidden = !agents.isEmpty
 
         for agent in agents {
