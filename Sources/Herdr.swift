@@ -373,6 +373,7 @@ final class Monitor: ObservableObject {
     private(set) var streamUp = false
     private var nextStreamTry = Date.distantPast
     private var socketPath: String?    // the session's socket, looked up once per connection
+    private var connecting = false
     /// Snapshots double as a reconciliation while the stream is live.
     static let reconcileEvery: TimeInterval = 60
     private var tick = 0
@@ -389,7 +390,7 @@ final class Monitor: ObservableObject {
     /// Drop the event stream and Herdr's cached view: the next refresh
     /// starts over with a snapshot.
     private func dropStream() {
-        stream?.stop(); stream = nil; streamPanes = []; streamUp = false
+        stream?.stop(); stream = nil; streamPanes = []; streamUp = false; connecting = false
         base = []; names = [:]; lastSnapshot = nil; needsSnapshot = true; nextStreamTry = .distantPast; socketPath = nil
     }
     /// Watch another Herdr session, starting over with its agents.
@@ -464,7 +465,8 @@ final class Monitor: ObservableObject {
     /// when they change and retrying a few seconds after it drops.
     private func keepStream() {
         let panes = base.map(\.id).sorted()
-        guard stream == nil || panes != streamPanes, Date() >= nextStreamTry else { return }
+        guard !connecting, stream == nil || panes != streamPanes, Date() >= nextStreamTry else { return }
+        connecting = true
         stream?.stop()
         streamPanes = panes
         let selectedSession = session, currentGeneration = generation
@@ -473,6 +475,7 @@ final class Monitor: ObservableObject {
         DispatchQueue.global(qos: .utility).async {
             let path = cached ?? herdrSocket(session: selectedSession)
             DispatchQueue.main.async {
+                self.connecting = false
                 self.socketPath = path
                 guard currentGeneration == self.generation, self.stream == nil else { return }
                 guard let path = path else { self.streamUp = false; self.nextStreamTry = Date().addingTimeInterval(5); return }
