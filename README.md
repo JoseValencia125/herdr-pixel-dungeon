@@ -1,3 +1,5 @@
+<p align="center"><img src="Resources/Icon/icon_256.png" width="128" alt="Herdr Pixel Dungeon icon: a knight's helm on a dungeon tile"></p>
+
 # Herdr Pixel Dungeon
 
 **A native pixel-art guild for your live Herdr agents, for macOS and Linux.**
@@ -5,6 +7,10 @@
 Written in **Rust** on `egui`/`eframe`, with a status item in the menu bar or system tray. Each agent is an animated hero in a dungeon room that changes with its real Herdr status. Lives in a small floating window. No browser, WebView, Node.js, account or server required.
 
 Created by **Nacho Valencia**. All pixel art is original, drawn in Aseprite for this project. Inspired by **[Claude Dungeon](https://github.com/thousandsky2024/claude-pixel-agent-web)** by [thousandsky2024](https://github.com/thousandsky2024).
+
+## Download
+
+Prebuilt binaries for macOS (`.app`, zipped) and Linux (x86_64 tarball with a `.desktop` entry and icon) are on the [Releases](https://github.com/JoseValencia125/herdr-pixel-dungeon/releases) page. The macOS app is ad-hoc signed, not notarized: the first time, right-click it and choose Open.
 
 ## Build and open
 
@@ -30,6 +36,8 @@ On **Linux** (X11 or Wayland) it produces `build/herdr-pixel-dungeon`. The tray 
 sudo apt install libgtk-3-dev libayatana-appindicator3-dev libxdo-dev libasound2-dev
 ./scripts/build.sh
 ./build/herdr-pixel-dungeon
+# optional: a launcher entry and icon
+cp build/herdr-pixel-dungeon ~/.local/bin/ && cp build/herdr-pixel-dungeon.desktop ~/.local/share/applications/ && cp build/herdr-pixel-dungeon.png ~/.local/share/icons/
 ```
 
 `cargo test` and `herdr-pixel-dungeon --self-test` run the same checks (everything that works without a window). `--demo` shows fictional agents without Herdr; `--diagnose` prints what Herdr reports. `HPD_LANG=en` forces a language (Spanish, English, French, Italian and Portuguese follow the system locale otherwise), and `HPD_REDUCE_MOTION=1` stops the animations.

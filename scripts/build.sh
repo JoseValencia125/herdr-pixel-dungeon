@@ -14,6 +14,7 @@ if [ "$(uname)" = "Darwin" ]; then
   mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources/Licenses"
   cp "$BIN" "$APP_DIR/Contents/MacOS/herdr-pixel-dungeon"
   cp "$PROJECT_DIR/Resources/Info.plist" "$APP_DIR/Contents/Info.plist"
+  cp "$PROJECT_DIR/Resources/Icon/icon.icns" "$APP_DIR/Contents/Resources/icon.icns"
   cp "$PROJECT_DIR/Resources/Licenses/"* "$APP_DIR/Contents/Resources/Licenses/"
   cp "$PROJECT_DIR/LICENSE" "$APP_DIR/Contents/Resources/Licenses/APP-MIT.txt"
   cp "$PROJECT_DIR/NOTICE.md" "$APP_DIR/Contents/Resources/Licenses/NOTICE.md"
@@ -21,5 +22,7 @@ if [ "$(uname)" = "Darwin" ]; then
   echo "Built: $APP_DIR"
 else
   cp "$BIN" "$PROJECT_DIR/build/herdr-pixel-dungeon"
-  echo "Built: $PROJECT_DIR/build/herdr-pixel-dungeon"
+  cp "$PROJECT_DIR/Resources/Icon/icon_256.png" "$PROJECT_DIR/build/herdr-pixel-dungeon.png"
+  cp "$PROJECT_DIR/Resources/herdr-pixel-dungeon.desktop" "$PROJECT_DIR/build/"
+  echo "Built: $PROJECT_DIR/build/herdr-pixel-dungeon (with .desktop and icon)"
 fi

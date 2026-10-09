@@ -1,0 +1,41 @@
+name: Release builds
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: ./scripts/build.sh
+      - run: ./target/release/herdr-pixel-dungeon --self-test
+      - run: cd build && ditto -c -k --keepParent "Herdr Pixel Dungeon.app" "Herdr-Pixel-Dungeon-macOS.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Herdr-Pixel-Dungeon-macOS
+          path: build/Herdr-Pixel-Dungeon-macOS.zip
+      - if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/Herdr-Pixel-Dungeon-macOS.zip
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libayatana-appindicator3-dev libxdo-dev libasound2-dev
+      - run: ./scripts/build.sh
+      - run: ./target/release/herdr-pixel-dungeon --self-test
+      - run: cd build && tar -czf herdr-pixel-dungeon-linux-x86_64.tar.gz herdr-pixel-dungeon herdr-pixel-dungeon.png herdr-pixel-dungeon.desktop
+      - uses: actions/upload-artifact@v4
+        with:
+          name: herdr-pixel-dungeon-linux-x86_64
+          path: build/herdr-pixel-dungeon-linux-x86_64.tar.gz
+      - if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/herdr-pixel-dungeon-linux-x86_64.tar.gz

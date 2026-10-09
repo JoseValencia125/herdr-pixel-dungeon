@@ -67,6 +67,10 @@ fn main() {
         .with_resizable(true)
         .with_inner_size([scene::width_for(2), 400.0])
         .with_min_inner_size([scene::width_for(1), 200.0]);
+    if let Some(icon) = assets::decode_png(include_bytes!("../Resources/Icon/icon_256.png")) {
+        let [w, h] = icon.size;
+        viewport = viewport.with_icon(egui::IconData { rgba: icon.as_raw().to_vec(), width: w as u32, height: h as u32 });
+    }
     if on_top { viewport = viewport.with_always_on_top(); }
     let options = eframe::NativeOptions { viewport, centered: false, ..Default::default() };
     let result = eframe::run_native("Herdr Pixel Dungeon", options, Box::new(move |cc| Ok(Box::new(App::new(cc, prefs, session, demo)))));

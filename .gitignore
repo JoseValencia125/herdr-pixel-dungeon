@@ -11,3 +11,4 @@ build/
 *.dmg
 *.zip
 /target/
+Resources/Icon/icon.iconset/
