@@ -237,6 +237,25 @@ func connectionNote(error: String?, updated: Date?, now: Date = Date(), staleAft
     return (tr("Datos sin actualizar · última actualización %@", ago), false)
 }
 
+/// A Herdr session, from `herdr session list --json`.
+struct HerdrSession: Equatable {
+    let name: String
+    let running: Bool
+}
+
+func decodeSessions(_ data: Data) -> [HerdrSession] {
+    guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let rows = root["sessions"] as? [[String: Any]] else { return [] }
+    return rows.compactMap { row in
+        (row["name"] as? String).map { HerdrSession(name: $0, running: row["running"] as? Bool ?? false) }
+    }
+}
+
+/// The sessions Herdr knows about; empty when Herdr cannot be reached.
+func listSessions() -> [HerdrSession] {
+    (try? runHerdr(["session", "list", "--json"], session: "default", timeout: 2)).map(decodeSessions) ?? []
+}
+
 /// Which rooms the HUD's state chips let through.
 enum StatusFilter: String, CaseIterable {
     case all, blocked, working, idle, done
@@ -286,7 +305,10 @@ final class Monitor: ObservableObject {
     }
     /// The room the user clicked; its chat panel is open while set.
     @Published var selected: String? { didSet { if selected != oldValue { onChange?() } } }
-    let session = ProcessInfo.processInfo.environment["HERDR_SESSION"] ?? "default"
+    /// The Herdr session watched: HERDR_SESSION when set, else the one picked
+    /// last time from the menu bar, else "default".
+    @Published private(set) var session = ProcessInfo.processInfo.environment["HERDR_SESSION"]
+        ?? UserDefaults.standard.string(forKey: "session") ?? "default"
     private var busy = false
     private var timer: Timer?
     private var tick = 0
@@ -298,7 +320,15 @@ final class Monitor: ObservableObject {
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.refresh() }
     }
     func setDemo(_ enabled: Bool) {
-        generation += 1; demo = enabled; agents = []; events = []; updated = nil; error = nil
+        generation += 1; demo = enabled; reset()
+    }
+    /// Watch another Herdr session, starting over with its agents.
+    func setSession(_ name: String) {
+        guard name != session else { return }
+        generation += 1; session = name; UserDefaults.standard.set(name, forKey: "session"); reset()
+    }
+    private func reset() {
+        agents = []; events = []; updated = nil; error = nil; selected = nil
         onChange?(); refresh()
     }
     func apply(_ next: [Agent]) {

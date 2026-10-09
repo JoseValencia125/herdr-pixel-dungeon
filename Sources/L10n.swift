@@ -111,6 +111,10 @@ enum L10n {
                                                             "Dati non aggiornati · ultimo aggiornamento %@", "Dados sem atualizar · última atualização %@"],
         "Reintentando la conexión automáticamente.": ["Retrying the connection automatically.", "Reconnexion automatique en cours.", "Riprovo la connessione automaticamente.", "Tentando reconectar automaticamente."],
         "Herdr no ha entregado datos nuevos.": ["Herdr has not sent new data.", "Herdr n’a pas envoyé de nouvelles données.", "Herdr non ha inviato dati nuovi.", "O Herdr não enviou dados novos."],
+        // Sessions
+        "Sesión de Herdr": ["Herdr session", "Session Herdr", "Sessione Herdr", "Sessão do Herdr"],
+        "%@ (detenida)": ["%@ (stopped)", "%@ (arrêtée)", "%@ (ferma)", "%@ (parada)"],
+        "Demo (agentes ficticios)": ["Demo (fictional agents)", "Démo (agents fictifs)", "Demo (agenti fittizi)", "Demo (agentes fictícios)"],
         // Demo activity titles
         "Construyendo la página de ajustes": ["Building the settings page", "Construction de la page des réglages", "Costruisco la pagina delle impostazioni", "Construindo a página de ajustes"],
         "Revisando las pruebas": ["Reviewing the tests", "Révision des tests", "Rivedo i test", "Revisando os testes"],

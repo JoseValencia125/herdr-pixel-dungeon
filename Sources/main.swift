@@ -228,6 +228,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         notifyMenu.autoenablesItems = false
         menu.addItem(withTitle: tr("Notificaciones"), action: nil, keyEquivalent: "").submenu = notifyMenu
         menu.addItem(.separator())
+        // Sessions: the running ones (and the watched one, even if stopped).
+        let sessionMenu = NSMenu()
+        var sessions = listSessions()
+        if !sessions.contains(where: { $0.name == monitor.session }) { sessions.insert(HerdrSession(name: monitor.session, running: false), at: 0) }
+        for session in sessions {
+            let item = sessionMenu.addItem(withTitle: session.running ? session.name : tr("%@ (detenida)", session.name), action: #selector(pickSession(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = session.name
+            item.state = session.name == monitor.session && !monitor.demo ? .on : .off
+        }
+        sessionMenu.addItem(.separator())
+        let demo = sessionMenu.addItem(withTitle: tr("Demo (agentes ficticios)"), action: #selector(toggleDemo), keyEquivalent: "")
+        demo.target = self
+        demo.state = monitor.demo ? .on : .off
+        menu.addItem(withTitle: tr("Sesión de Herdr"), action: nil, keyEquivalent: "").submenu = sessionMenu
+        menu.addItem(.separator())
         menu.addItem(withTitle: tr("Acerca de Herdr Pixel Dungeon"), action: #selector(about), keyEquivalent: "").target = self
         menu.addItem(withTitle: tr("Salir"), action: #selector(quit), keyEquivalent: "q").target = self
         status.menu = menu
@@ -246,6 +262,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc func toggleSound() { sounds.enabled.toggle() }
     @objc func toggleNeedsHelpSound() { sounds.onNeedsHelp.toggle(); sounds.play(.needsHelp) }
     @objc func toggleFinishedSound() { sounds.onFinished.toggle(); sounds.play(.finished) }
+    @objc func pickSession(_ sender: NSMenuItem) {
+        guard let name = sender.representedObject as? String else { return }
+        if monitor.demo { monitor.setDemo(false) }
+        monitor.setSession(name)
+    }
+    @objc func toggleDemo() { monitor.setDemo(!monitor.demo) }
     @objc func toggleNotify() { notifier.enabled.toggle() }
     @objc func toggleNeedsHelpNotify() { notifier.onNeedsHelp.toggle() }
     @objc func toggleFinishedNotify() { notifier.onFinished.toggle() }
@@ -336,14 +358,16 @@ func selfTest() throws {
     precondition(connectionNote(error:"x",updated:nil,now:now)?.text==tr("Herdr desconectado"))
     for n in 1...6 { precondition(DungeonScene.columns(fitting:DungeonScene.width(columns:n))==n && DungeonScene.columns(fitting:DungeonScene.width(columns:n)+100)==n, "Flex wrap columns: \(n)") }
     precondition(DungeonScene.columns(fitting:10)==1 && DungeonScene.width(columns:2)==458)
+    let listed=decodeSessions(Data(#"{"sessions":[{"default":true,"name":"default","running":true},{"name":"work","running":false}]}"#.utf8))
+    precondition(listed==[HerdrSession(name:"default",running:true),HerdrSession(name:"work",running:false)] && decodeSessions(Data("nope".utf8)).isEmpty)
     var fired=false;let item=ClosureMenuItem(title:"x"){fired=true};_=(item.target as AnyObject).perform(item.action,with:item);precondition(fired,"Context menu item did not fire")
-    print("PASS: snapshot states, filtering, empty/error handling, monitor transitions, room art, heroes, subagent sessions, subagents keep agents busy, tool actions, translations, git branch, sound alerts + prefs, notifications + prefs, chat selection, question options, filters and search, connection notes, flex-wrap columns, context menu, question extraction, \(files.count) bundled sprites")
+    print("PASS: snapshot states, filtering, empty/error handling, monitor transitions, room art, heroes, subagent sessions, subagents keep agents busy, tool actions, translations, git branch, sound alerts + prefs, notifications + prefs, chat selection, question options, filters and search, connection notes, flex-wrap columns, sessions, context menu, question extraction, \(files.count) bundled sprites")
 }
 
 if CommandLine.arguments.contains("--self-test") {
     do{try selfTest()}catch{fputs("\(error)\n",stderr);exit(1)}
 } else if CommandLine.arguments.contains("--diagnose") {
-    do{let agents=try fetchSnapshot(session:ProcessInfo.processInfo.environment["HERDR_SESSION"] ?? "default");print("OK: \(agents.count) agentes");for a in agents{print("\(a.id) | \(a.name) | \(a.status) | \(a.project)")}}catch{fputs("\(error.localizedDescription)\n",stderr);exit(1)}
+    do{let agents=try fetchSnapshot(session:Monitor().session);print("OK: \(agents.count) agentes");for a in agents{print("\(a.id) | \(a.name) | \(a.status) | \(a.project)")}}catch{fputs("\(error.localizedDescription)\n",stderr);exit(1)}
 } else {
     let app=NSApplication.shared;let delegate=AppDelegate();app.delegate=delegate;app.run()
 }
