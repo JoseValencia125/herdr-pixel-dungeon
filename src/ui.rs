@@ -268,6 +268,11 @@ impl ChatState {
         ChatState { agent_id: agent_id.to_string(), draft: String::new(), lines: vec![], note: None, sending: None, choice: None, tail_rx: None, next_tail: 0.0, focus: true, status_seen: String::new(), screen: vec![], screen_rx: None, next_screen: 0.0, slash: None, slash_choice: 0 }
     }
 
+    pub fn with_draft(mut self, draft: String) -> ChatState {
+        self.draft = draft;
+        self
+    }
+
     fn menu(&self, agent: &Agent) -> MenuOptions {
         if agent.status == "blocked" { MenuOptions::new(&self.lines) } else { MenuOptions::default() }
     }
@@ -520,6 +525,7 @@ fn input_row(ui: &mut Ui, monitor: &Monitor, agent: &Agent, state: &mut ChatStat
                         let row = Frame::new().fill(fill).corner_radius(CornerRadius::same(4)).inner_margin(Margin::symmetric(6, 3)).show(ui, |ui| {
                             ui.set_width(ui.available_width());
                             ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing = vec2(10.0, 0.0);
                                 ui.label(mono(&format!("/{name}"), 12.0).color(Color32::WHITE).strong());
                                 ui.add(egui::Label::new(RichText::new(about).size(fs(11.0)).color(DIM)).truncate());
                             });

@@ -716,7 +716,11 @@ impl eframe::App for App {
         // The chat panel follows the selection.
         match (&self.monitor.selected, &self.chat) {
             (Some(id), Some(chat)) if &chat.agent_id == id => {}
-            (Some(id), _) => { self.chat = Some(ChatState::new(id)); needs_fit = true; }
+            (Some(id), _) => {
+                // HPD_TEST_DRAFT: text already in the box (for captures).
+                self.chat = Some(ChatState::new(id).with_draft(std::env::var("HPD_TEST_DRAFT").unwrap_or_default()));
+                needs_fit = true;
+            }
             (None, Some(_)) => { self.chat = None; needs_fit = true; }
             (None, None) => {}
         }
