@@ -58,6 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         didSet { UserDefaults.standard.set(rows, forKey: "layout.rows") }
     }
     private var resizeStart: NSRect?
+    private var keyPanel: String?   // the chat (agent id) or "compose" panel that last took the keyboard
     /// Room above the first row (drag handle) and below the last one.
     let topInset: CGFloat = 14
     let bottomInset: CGFloat = 6
@@ -81,8 +82,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             let count = self.monitor.agents.filter { $0.status == "blocked" }.count
             self.status.button?.toolTip = tr("Herdr Pixel Dungeon · %ld necesitan atención", count)
             self.fitSize()
-            // Typing in the chat or new-agent panel needs the widget to be the key window.
-            if self.monitor.selected != nil || self.monitor.composing { self.window.makeKey() }
+            // Typing in the chat or new-agent panel needs the widget to be the
+            // key window, but only take the keyboard when one opens: later
+            // updates must not pull typing away from another app.
+            let panel = self.monitor.selected ?? (self.monitor.composing ? "compose" : nil)
+            if let panel = panel, panel != self.keyPanel { self.window.makeKey() }
+            self.keyPanel = panel
         }
         monitor.onAlerts = { [weak self] alerts in
             guard let self = self, let first = alerts.first else { return }

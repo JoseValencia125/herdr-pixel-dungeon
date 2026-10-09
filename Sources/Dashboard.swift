@@ -365,11 +365,20 @@ struct ChatPanel: View {
                         .frame(maxWidth:.infinity,alignment:.leading)
                     }
                 } else {
-                    VStack(alignment:.leading,spacing:1) {
-                        ForEach(Array(lines.enumerated()),id:\.offset) { _,line in
-                            Text(line).lineLimit(1).truncationMode(.tail)
+                    // The terminal's tail, wrapped, kept scrolled to its last line.
+                    ScrollViewReader { reader in
+                        ScrollView {
+                            VStack(alignment:.leading,spacing:1) {
+                                ForEach(Array(lines.enumerated()),id:\.offset) { _,line in
+                                    Text(line).fixedSize(horizontal:false,vertical:true)
+                                }
+                                if lines.isEmpty { Text(tr("Leyendo la terminal…")).foregroundStyle(.secondary) }
+                                Color.clear.frame(height:1).id("end")
+                            }
+                            .frame(maxWidth:.infinity,alignment:.leading)
                         }
-                        if lines.isEmpty { Text(tr("Leyendo la terminal…")).foregroundStyle(.secondary) }
+                        .onAppear { reader.scrollTo("end",anchor:.bottom) }
+                        .onChange(of:lines) { _ in reader.scrollTo("end",anchor:.bottom) }
                     }
                 }
             }

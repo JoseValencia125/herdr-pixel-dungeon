@@ -677,7 +677,7 @@ extension Monitor {
 
     /// The last non-blank lines of the agent's terminal, so a question can be
     /// answered without switching windows.
-    func tail(of agent: Agent, lines: Int = 6, done: @escaping ([String]) -> Void) {
+    func tail(of agent: Agent, lines: Int = 30, done: @escaping ([String]) -> Void) {
         let selectedSession = session, demoMode = demo
         DispatchQueue.global(qos: .userInitiated).async {
             // A background job asking something: its whole question, options included.
