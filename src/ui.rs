@@ -521,15 +521,15 @@ pub struct ControlAction {
 pub fn controls(ctx: &Context, sounds_on: bool, log_open: bool) -> ControlAction {
     let mut action = ControlAction { compose: false, log: false, sound: false, minimize: false, close: false };
     egui::Area::new(egui::Id::new("controls")).anchor(Align2::RIGHT_TOP, vec2(-6.0, 6.0)).order(egui::Order::Foreground).show(ctx, |ui| {
-        Frame::new().fill(alpha(Color32::BLACK, 0.35)).corner_radius(CornerRadius::same(12)).inner_margin(Margin::symmetric(7, 3)).show(ui, |ui| {
+        Frame::new().fill(alpha(Color32::BLACK, 0.7)).corner_radius(CornerRadius::same(14)).inner_margin(Margin::symmetric(9, 4)).show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing = vec2(7.0, 0.0);
-                if flat_button(ui, mono("+", 15.0).strong().color(Color32::from_rgb(140, 217, 115))).on_hover_text(tr("Invocar un agente nuevo")).clicked() { action.compose = true; }
-                if flat_button(ui, mono("📜", 12.0).color(alpha(Color32::from_rgb(237, 214, 158), if log_open { 1.0 } else { 0.85 }))).on_hover_text(tr("Registro de actividad")).clicked() { action.log = true; }
+                ui.spacing_mut().item_spacing = vec2(10.0, 0.0);
+                if flat_button(ui, mono("+", 19.0).strong().color(Color32::from_rgb(140, 217, 115))).on_hover_text(tr("Invocar un agente nuevo")).clicked() { action.compose = true; }
+                if flat_button(ui, mono("📜", 16.0).color(alpha(Color32::from_rgb(237, 214, 158), if log_open { 1.0 } else { 0.85 }))).on_hover_text(tr("Registro de actividad")).clicked() { action.log = true; }
                 let speaker = if sounds_on { "🔊" } else { "🔇" };
-                if flat_button(ui, mono(speaker, 13.0).color(alpha(Color32::WHITE, if sounds_on { 0.85 } else { 0.45 }))).on_hover_text(if sounds_on { tr("Silenciar sonidos") } else { tr("Activar sonidos") }).clicked() { action.sound = true; }
-                if flat_button(ui, mono("–", 15.0).strong().color(Color32::from_rgb(250, 189, 46))).on_hover_text(tr("Minimizar (ocultar)")).clicked() { action.minimize = true; }
-                if flat_button(ui, mono("x", 14.0).strong().color(Color32::from_rgb(242, 84, 77))).on_hover_text(tr("Cerrar")).clicked() { action.close = true; }
+                if flat_button(ui, mono(speaker, 16.0).color(alpha(Color32::WHITE, if sounds_on { 0.9 } else { 0.5 }))).on_hover_text(if sounds_on { tr("Silenciar sonidos") } else { tr("Activar sonidos") }).clicked() { action.sound = true; }
+                if flat_button(ui, mono("–", 19.0).strong().color(Color32::from_rgb(250, 189, 46))).on_hover_text(tr("Minimizar (ocultar)")).clicked() { action.minimize = true; }
+                if flat_button(ui, mono("x", 17.0).strong().color(Color32::from_rgb(242, 84, 77))).on_hover_text(tr("Cerrar")).clicked() { action.close = true; }
             });
         });
     });
