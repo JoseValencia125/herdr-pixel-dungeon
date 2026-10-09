@@ -25,7 +25,23 @@ struct Agent: Identifiable, Equatable {
 
 enum MonitorError: LocalizedError {
     case message(String)
-    var errorDescription: String? { if case .message(let value) = self { return value }; return nil }
+    /// Herdr answered with an error (its JSON on stderr): a code such as
+    /// agent_not_ready or agent_blocked, and its own message.
+    case herdr(code: String, message: String)
+    var errorDescription: String? {
+        switch self {
+        case .message(let value): return value
+        case .herdr(_, let message): return message
+        }
+    }
+    var herdrCode: String? { if case .herdr(let code, _) = self { return code }; return nil }
+}
+
+/// The error Herdr printed on stderr (`{"error":{"code":…,"message":…}}`), if any.
+func herdrError(_ data: Data) -> MonitorError? {
+    guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let error = root["error"] as? [String: Any], let code = error["code"] as? String else { return nil }
+    return .herdr(code: code, message: error["message"] as? String ?? code)
 }
 
 func decodeSnapshot(_ data: Data) throws -> [Agent] { try decodeSnapshotParts(data).agents }
@@ -89,16 +105,22 @@ func runHerdr(_ arguments: [String], session: String, timeout seconds: TimeInter
     let process = Process()
     process.executableURL = URL(fileURLWithPath: try herdrBinary())
     process.arguments = (session == "default" ? [] : ["--session", session]) + arguments
-    let output = Pipe()
+    let output = Pipe(), errors = Pipe()
     process.standardOutput = output
-    process.standardError = FileHandle.nullDevice
+    process.standardError = errors
     try process.run()
     let timeout = DispatchWorkItem { if process.isRunning { kill(process.processIdentifier, SIGKILL) } }
     DispatchQueue.global().asyncAfter(deadline: .now() + seconds, execute: timeout)
+    var complaint = Data()
+    let drained = DispatchSemaphore(value: 0)
+    DispatchQueue.global().async { complaint = errors.fileHandleForReading.readDataToEndOfFile(); drained.signal() }
     let data = output.fileHandleForReading.readDataToEndOfFile()
+    drained.wait()
     process.waitUntilExit()
     timeout.cancel()
-    guard process.terminationStatus == 0 else { throw MonitorError.message(tr("Sin conexión con Herdr. Abre tu sesión; reintentamos automáticamente.")) }
+    guard process.terminationStatus == 0 else {
+        throw herdrError(complaint) ?? MonitorError.message(tr("Sin conexión con Herdr. Abre tu sesión; reintentamos automáticamente."))
+    }
     return data
 }
 
@@ -541,7 +563,7 @@ extension Monitor {
         if agent.status == "blocked" {
             act(["pane", "send-text", agent.id, message], ["pane", "send-keys", agent.id, "enter"], done: log)
         } else {
-            act(["agent", "prompt", agent.id, message, "--timeout", "4000"], done: log)
+            prompt(agent.id, message, done: log)
         }
     }
 
@@ -572,8 +594,10 @@ extension Monitor {
         let path = (folder as NSString).expandingTildeInPath
         let label = (path as NSString).lastPathComponent
         let name = agentName(kind: kind, folder: label)
+        let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         DispatchQueue.global(qos: .userInitiated).async {
             var failure: String?
+            var waitingPane: String?   // started, but stopped at a startup question
             if !demoMode {
                 do {
                     var isDir: ObjCBool = false
@@ -583,20 +607,64 @@ extension Monitor {
                     let created = try runHerdr(["workspace", "create", "--cwd", path, "--label", label, "--no-focus"], session: selectedSession, timeout: 8)
                     guard let pane = rootPane(created) else { throw MonitorError.message(tr("Herdr no devolvió el panel nuevo.")) }
                     do { try runHerdr(["agent", "start", name, "--kind", kind, "--pane", pane, "--timeout", "60000"], session: selectedSession, timeout: 65) }
+                    catch let error as MonitorError where error.herdrCode == "agent_not_ready" { waitingPane = pane }
                     catch { throw MonitorError.message(tr("%@ no arrancó. Revisa que esté instalado.", kind)) }
-                    let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !text.isEmpty {
-                        do { try runHerdr(["agent", "prompt", name, text, "--timeout", "8000"], session: selectedSession, timeout: 10) }
+                    if waitingPane == nil && !text.isEmpty {
+                        do { try runHerdr(["agent", "prompt", name, text], session: selectedSession, timeout: 10) }
+                        catch let error as MonitorError where ["agent_prompt_stalled", "agent_prompt_unverifiable"].contains(error.herdrCode ?? "") {}
+                        catch let error as MonitorError where error.herdrCode == "agent_blocked" { waitingPane = pane }
                         catch { throw MonitorError.message(tr("El agente arrancó, pero no recibió el prompt.")) }
                     }
                 } catch { failure = error.localizedDescription }
             }
             DispatchQueue.main.async {
                 if failure == nil { self.events.insert(GuildEvent(text: tr("Invocaste a %@ en %@", kind, label), tone: "joined"), at: 0) }
+                if let pane = waitingPane {
+                    self.events.insert(GuildEvent(text: tr("%@ espera tu respuesta; su prompt se enviará cuando esté listo.", label), tone: "blocked"), at: 0)
+                    if !text.isEmpty { self.promptWhenReady(pane: pane, name: name, project: label, text: text) } else { self.selected = pane }
+                }
                 done(failure)
                 self.refresh()
             }
         }
+    }
+
+    /// Submit a prompt with `herdr agent prompt`. Herdr only reports
+    /// "stalled" or "unverifiable" when it cannot see the agent react within
+    /// five seconds; that is not proof the text was lost, so it counts as sent.
+    private func prompt(_ target: String, _ text: String, done: @escaping (String?) -> Void) {
+        let selectedSession = session, demoMode = demo
+        DispatchQueue.global(qos: .userInitiated).async {
+            var failure: String?
+            if !demoMode {
+                do { try runHerdr(["agent", "prompt", target, text], session: selectedSession, timeout: 10) }
+                catch let error as MonitorError where ["agent_prompt_stalled", "agent_prompt_unverifiable"].contains(error.herdrCode ?? "") {}
+                catch let error as MonitorError where error.herdrCode == "agent_blocked" { failure = tr("El agente está esperando una respuesta; contéstale primero.") }
+                catch { failure = tr("Herdr rechazó la acción. Revisa el panel del agente.") }
+            }
+            DispatchQueue.main.async { done(failure) }
+        }
+    }
+
+    /// A new agent stopped at a startup question (trusting the folder, a
+    /// login…): open its chat so it can be answered, and send the first
+    /// prompt once it is idle. Gives up after three minutes.
+    private func promptWhenReady(pane: String, name: String, project: String, text: String) {
+        var seen = false
+        func check(_ tries: Int) {
+            guard tries > 0 else { return events.insert(GuildEvent(text: tr("%@ no quedó listo; su prompt no se envió.", project), tone: "left"), at: 0) }
+            let status = agents.first { $0.id == pane }?.status
+            if status != nil && !seen { seen = true; selected = pane }
+            if status == "idle" || status == "done" {
+                return prompt(name, text) { failure in
+                    self.events.insert(GuildEvent(text: failure == nil ? tr("Tú → %@: %@", project, text) : tr("%@ no recibió su prompt.", project),
+                                                  tone: failure == nil ? "message" : "left"), at: 0)
+                }
+            }
+            if seen && status == nil { return }   // the pane went away
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { check(tries - 1) }
+        }
+        check(180)
     }
 
     /// Bring the agent's pane to the front inside Herdr.

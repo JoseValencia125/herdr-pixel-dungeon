@@ -426,8 +426,9 @@ func selfTest() throws {
     precondition(applyHerdrEvent(["event":"pane_closed","data":["pane_id":"b"]],to:&live,names:[:]) == .changed && live.isEmpty)
     precondition(applyHerdrEvent(["event":"pane_agent_detected","data":["pane_id":"q"]],to:&live,names:[:]) == .resync && applyHerdrEvent(["event":"pane_focused","data":[:]],to:&live,names:[:]) == .none)
     let subs=herdrSubscriptions(panes:["w2:p1","w1:p1"]);precondition(subs.last?["pane_id"] as? String=="w2:p1" && subs.contains{$0["type"] as? String=="pane.closed"})
+    precondition(herdrError(Data(#"{"error":{"code":"agent_blocked","message":"blocked"},"id":"x"}"#.utf8))?.herdrCode=="agent_blocked" && herdrError(Data("oops".utf8))==nil)
     var fired=false;let item=ClosureMenuItem(title:"x"){fired=true};_=(item.target as AnyObject).perform(item.action,with:item);precondition(fired,"Context menu item did not fire")
-    print("PASS: snapshot states, filtering, empty/error handling, monitor transitions, room art, heroes, subagent sessions, subagents keep agents busy, tool actions, translations, git branch, sound alerts + prefs, notifications + prefs, chat selection, question options, filters and search, connection notes, flex-wrap columns, sessions, agent creation, codex + kiro actions, herdr events, context menu, question extraction, \(files.count) bundled sprites")
+    print("PASS: snapshot states, filtering, empty/error handling, monitor transitions, room art, heroes, subagent sessions, subagents keep agents busy, tool actions, translations, git branch, sound alerts + prefs, notifications + prefs, chat selection, question options, filters and search, connection notes, flex-wrap columns, sessions, agent creation, codex + kiro actions, herdr events, context menu, question extraction, Herdr error codes, \(files.count) bundled sprites")
 }
 
 if CommandLine.arguments.contains("--self-test") {

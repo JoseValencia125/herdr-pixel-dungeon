@@ -127,6 +127,10 @@ enum L10n {
         "La carpeta no existe.": ["The folder does not exist.", "Le dossier n’existe pas.", "La cartella non esiste.", "A pasta não existe."],
         "Herdr no devolvió el panel nuevo.": ["Herdr did not return the new pane.", "Herdr n’a pas renvoyé le nouveau panneau.", "Herdr non ha restituito il nuovo pannello.", "O Herdr não devolveu o novo painel."],
         "%@ no arrancó. Revisa que esté instalado.": ["%@ did not start. Check that it is installed.", "%@ n’a pas démarré. Vérifie qu’il est installé.", "%@ non è partito. Controlla che sia installato.", "%@ não iniciou. Verifique se está instalado."],
+        "El agente está esperando una respuesta; contéstale primero.": ["The agent is waiting for an answer; reply to it first.", "L’agent attend une réponse ; réponds-lui d’abord.", "L’agente aspetta una risposta; rispondigli prima.", "O agente está esperando uma resposta; responda primeiro."],
+        "%@ no quedó listo; su prompt no se envió.": ["%@ never got ready; its prompt was not sent.", "%@ n’a jamais été prêt ; son prompt n’a pas été envoyé.", "%@ non è stato pronto; il prompt non è stato inviato.", "%@ não ficou pronto; o prompt não foi enviado."],
+        "%@ no recibió su prompt.": ["%@ did not get its prompt.", "%@ n’a pas reçu son prompt.", "%@ non ha ricevuto il prompt.", "%@ não recebeu o prompt."],
+        "%@ espera tu respuesta; su prompt se enviará cuando esté listo.": ["%@ is waiting for your answer; its prompt will be sent once it is ready.", "%@ attend ta réponse ; son prompt partira dès qu’il sera prêt.", "%@ aspetta la tua risposta; il prompt partirà appena è pronto.", "%@ espera sua resposta; o prompt será enviado quando estiver pronto."],
         "El agente arrancó, pero no recibió el prompt.": ["The agent started but did not get the prompt.", "L’agent a démarré mais n’a pas reçu le prompt.", "L’agente è partito ma non ha ricevuto il prompt.", "O agente iniciou, mas não recebeu o prompt."],
         "Invocaste a %@ en %@": ["You summoned %@ in %@", "Tu as invoqué %@ dans %@", "Hai evocato %@ in %@", "Você invocou %@ em %@"],
         // Window preferences
