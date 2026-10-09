@@ -109,6 +109,10 @@ pub fn run() {
                         r#"{"type":"assistant","message":{"id":"m1","content":[{"type":"text","text":"Segunda parte"}]}}"#);
     assert_eq!(last_assistant_text(split).as_deref(), Some("Primera parte\nSegunda parte"), "Split assistant message not joined");
     assert_eq!(last_assistant_text(r#"{"type":"assistant","message":{"content":[{"type":"text","text":"solo"}]}}"#).as_deref(), Some("solo"));
+    let wrapped: Vec<String> = ["● Bash(ls)", "  ⎿ ok", "Tipografía. Propongo pixel font solo para títulos, nombres y números grandes, y Manrope", "para texto pequeño. Una pixel font a 12 px no se lee en móvil. Se decide con capturas.", "  - Primer paso. Un vertical slice de 3 a 4 días: marco del bestiario, un goblin con sus", "tags, el ataque de rayo completo y la barra de HP.", "❯ 1. Yes"].iter().map(|s| s.to_string()).collect();
+    let flowed = paragraphs(&wrapped);
+    assert_eq!(flowed.len(), 5, "Hard-wrapped lines not joined: {flowed:?}");
+    assert!(flowed[2].starts_with("Tipografía") && flowed[2].ends_with("capturas.") && flowed[3].starts_with("  - Primer paso") && flowed[3].ends_with("de HP.") && flowed[4] == "❯ 1. Yes");
     let job = BackgroundJob { state: "blocked".into(), needs: Some("¿Sí?".into()), transcript: Some("/t.jsonl".into()), updated: SystemTime::now() };
     let asked = agent("q", "claude", "idle", "p", "a", "~").with_jobs(&[job]);
     assert!(asked.status == "blocked" && asked.question.as_deref() == Some("¿Sí?") && asked.question_transcript.as_deref() == Some("/t.jsonl"));

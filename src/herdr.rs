@@ -951,6 +951,35 @@ pub fn meaningful_lines(text: &str) -> Vec<String> {
     out
 }
 
+/// Join the lines a terminal hard-wrapped back into paragraphs, so the panel
+/// can wrap them to its own width: a line that filled the terminal's width
+/// continues on the next one unless that one starts a new block (a bullet,
+/// a tool line, an option, a heading…).
+pub fn paragraphs(lines: &[String]) -> Vec<String> {
+    let widest = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0);
+    let starts_block = |line: &str| {
+        let t = line.trim_start();
+        t.is_empty()
+            || ["●", "⎿", "❯", "│", "╭", "╰", "├", "└", "⏺", "✻", "✳", "✢", "✽", "✶", "※", "- ", "* ", "• ", "> ", "#", "⏵"].iter().any(|m| t.starts_with(m))
+            || option_prefix(t).is_some()
+    };
+    let mut out: Vec<String> = vec![];
+    let mut open = false; // the last paragraph may continue
+    for line in lines {
+        let full = widest >= 40 && line.chars().count() >= widest.saturating_sub(12);
+        if open && !starts_block(line) {
+            if let Some(last) = out.last_mut() {
+                last.push(' ');
+                last.push_str(line.trim());
+            }
+        } else {
+            out.push(line.trim_end().to_string());
+        }
+        open = full;
+    }
+    out
+}
+
 /// What a Claude Code session is doing right now, from the last 128 KB of
 /// its transcript (~/.claude/projects/<project>/<session>.jsonl), if it was
 /// written in the last two minutes.

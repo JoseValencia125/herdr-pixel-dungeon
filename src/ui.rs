@@ -260,17 +260,20 @@ pub fn chat_panel(ui: &mut Ui, monitor: &Monitor, agent: &Agent, state: &mut Cha
             ui.set_max_height(body_height.max(40.0));
             ui.set_width(ui.available_width());
             let asking = agent.status == "blocked" && !state.lines.is_empty();
+            // A question keeps its lines (the options are picked by line); a
+            // plain tail is re-flowed into paragraphs that wrap to the panel.
+            let shown: Vec<String> = if asking { state.lines.clone() } else { crate::herdr::paragraphs(&state.lines) };
             egui::ScrollArea::vertical().auto_shrink([false, false]).stick_to_bottom(!asking).show(ui, |ui| {
-                ui.spacing_mut().item_spacing = vec2(0.0, if asking { 2.0 } else { 1.0 });
+                ui.spacing_mut().item_spacing = vec2(0.0, if asking { 2.0 } else { 4.0 });
                 if state.lines.is_empty() {
-                    ui.label(mono(&tr("Leyendo la terminal…"), 10.0).color(DIM));
+                    ui.label(mono(&tr("Leyendo la terminal…"), 11.0).color(DIM));
                 }
                 let mut picked: Option<usize> = None;
-                for (i, line) in state.lines.iter().enumerate() {
+                for (i, line) in shown.iter().enumerate() {
                     let option = menu.options.iter().position(|o| o.line == i);
                     let highlighted = option.is_some() && option == state.choice;
                     let lead = asking && i == 0 && agent.question.is_some();
-                    let text = mono(line, 10.0).color(if highlighted || lead { Color32::WHITE } else { Color32::from_gray(217) });
+                    let text = mono(line, 11.0).color(if highlighted || lead { Color32::WHITE } else { Color32::from_gray(222) });
                     let text = if highlighted || lead { text.strong() } else { text };
                     let label = egui::Label::new(text).wrap();
                     let response = if option.is_some() {
