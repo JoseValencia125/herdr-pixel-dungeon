@@ -16,10 +16,6 @@ Written in **Rust** on `egui`/`eframe`, with a status item in the menu bar or sy
 
 Prebuilt binaries for macOS (`.app`, zipped) and Linux (x86_64 tarball with a `.desktop` entry and icon) are on the [Releases](https://github.com/JoseValencia125/herdr-pixel-dungeon/releases) page. The macOS app is ad-hoc signed, not notarized: the first time, right-click it and choose Open.
 
-## Without Herdr
-
-Herdr is what lets the dungeon talk to the agents: it owns their terminals, reports each pane's state and types into it. Without it the app still works as a **read-only viewer**: it finds the agents running in any terminal by their processes (Claude Code, Codex, Kiro, Gemini and the other harnesses Herdr knows) and infers their state from the files they write — Claude Code and Codex transcripts give working, waiting, and a tool call waiting for permission; the last prompt becomes the room's activity line. The chat shows the agent's last reply but cannot send anything, and there is no summoning. A banner over the rooms offers **Install Herdr** (its official installer, `curl -fsSL https://herdr.dev/install.sh | sh`), **Open Herdr** (a terminal running `herdr`, which leaves its server up) or **Carry on without Herdr**; the menu's **Open Herdr at startup** does the opening for you. Agents only appear in the full dungeon when they run inside Herdr.
-
 ## Build and open
 
 Requires [Rust](https://rustup.rs) (stable) and [Herdr](https://herdr.dev) with `herdr api snapshot` support. Tested with Herdr 0.9.1.
@@ -138,6 +134,10 @@ If the dungeon is useful to you, you can [sponsor the project on GitHub](https:/
 - **Herdr contributors**: [Herdr](https://github.com/herdrdev/herdr) and its local API. Herdr is installed separately.
 
 Independent project; no endorsement or affiliation implied.
+
+## Without Herdr (optional)
+
+Herdr is what lets the dungeon talk to the agents: it owns their terminals, reports each pane's state and types into it. Without it the app still works as a **read-only viewer**: it finds the agents running in any terminal by their processes (Claude Code, Codex, Kiro, Gemini and the other harnesses Herdr knows) and infers their state from the files they write — Claude Code and Codex transcripts give working, waiting, and a tool call waiting for permission; the last prompt becomes the room's activity line. The chat shows the agent's last reply but cannot send anything, and there is no summoning. A banner over the rooms offers **Install Herdr** (its official installer, `curl -fsSL https://herdr.dev/install.sh | sh`), **Open Herdr** (a terminal running `herdr`, which leaves its server up) or **Carry on without Herdr**; the menu's **Open Herdr at startup** does the opening for you. Agents only appear in the full dungeon when they run inside Herdr.
 
 ## Credits
 
