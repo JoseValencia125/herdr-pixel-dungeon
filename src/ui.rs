@@ -62,45 +62,58 @@ pub struct HudAction {
     pub compose: bool,
 }
 
+/// The HUD grows a second row while the search box is open.
+pub fn hud_height(state: &HudState, monitor: &Monitor) -> f32 {
+    if state.searching || !monitor.query.is_empty() { HUD_HEIGHT + SEARCH_ROW } else { HUD_HEIGHT }
+}
+
+pub const SEARCH_ROW: f32 = 26.0;
+
 /// Bar under the rooms: one chip per state (with its count) to filter the
-/// rooms, and a search box over project, harness, branch, folder and activity.
+/// rooms, and a search box (on its own row) over project, harness, branch,
+/// folder and activity.
 pub fn hud(ui: &mut Ui, monitor: &mut Monitor, state: &mut HudState) -> HudAction {
     let mut action = HudAction { toggle_log: false, compose: false };
     // One column of rooms leaves no room for words: the "All" chip shows only its count.
     let narrow = ui.available_width() < crate::scene::width_for(2) - 20.0;
-    ui.horizontal_centered(|ui| {
-        ui.spacing_mut().item_spacing = vec2(4.0, 0.0);
-        for filter in StatusFilter::ALL {
-            chip(ui, monitor, filter, narrow);
-        }
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.spacing_mut().item_spacing = vec2(12.0, 0.0);
-            let open = state.searching || !monitor.query.is_empty();
-            let glyph = if open { "x" } else { "🔍" };
-            let button = flat_button(ui, mono(glyph, 13.0).color(alpha(Color32::WHITE, 0.75)))
-                .on_hover_text(if state.searching { tr("Cerrar búsqueda (esc)") } else { tr("Buscar por proyecto, agente, rama, carpeta o actividad") });
-            if button.clicked() {
-                if open { monitor.set_query(String::new()); state.searching = false; } else { state.searching = true; state.focus_search = true; }
+    let open = state.searching || !monitor.query.is_empty();
+    ui.vertical(|ui| {
+        ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
+        ui.allocate_ui_with_layout(vec2(ui.available_width(), HUD_HEIGHT), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+            ui.spacing_mut().item_spacing = vec2(4.0, 0.0);
+            for filter in StatusFilter::ALL {
+                chip(ui, monitor, filter, narrow);
             }
-            if flat_button(ui, mono("📜", 13.0).color(alpha(Color32::from_rgb(237, 214, 158), 0.85))).on_hover_text(tr("Registro de actividad")).clicked() {
-                action.toggle_log = true;
-            }
-            if flat_button(ui, mono("+", 16.0).strong().color(Color32::from_rgb(140, 217, 115))).on_hover_text(tr("Invocar un agente nuevo")).clicked() {
-                action.compose = true;
-            }
-            if open {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.spacing_mut().item_spacing = vec2(12.0, 0.0);
+                let glyph = if open { "x" } else { "🔍" };
+                let button = flat_button(ui, mono(glyph, 13.0).color(alpha(Color32::WHITE, 0.75)))
+                    .on_hover_text(if open { tr("Cerrar búsqueda (esc)") } else { tr("Buscar por proyecto, agente, rama, carpeta o actividad") });
+                if button.clicked() {
+                    if open { monitor.set_query(String::new()); state.searching = false; } else { state.searching = true; state.focus_search = true; }
+                }
+                if flat_button(ui, mono("📜", 13.0).color(alpha(Color32::from_rgb(237, 214, 158), 0.85))).on_hover_text(tr("Registro de actividad")).clicked() {
+                    action.toggle_log = true;
+                }
+                if flat_button(ui, mono("+", 16.0).strong().color(Color32::from_rgb(140, 217, 115))).on_hover_text(tr("Invocar un agente nuevo")).clicked() {
+                    action.compose = true;
+                }
+            });
+        });
+        if open {
+            ui.allocate_ui_with_layout(vec2(ui.available_width(), SEARCH_ROW), egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 let mut query = monitor.query.clone();
                 let edit = egui::TextEdit::singleline(&mut query)
                     .hint_text(tr("Buscar…"))
                     .font(FontId::monospace(11.0))
-                    .desired_width(130.0)
-                    .margin(Margin::symmetric(5, 2));
+                    .desired_width(ui.available_width())
+                    .margin(Margin::symmetric(6, 3));
                 let response = ui.add(edit);
                 if state.focus_search { response.request_focus(); state.focus_search = false; }
                 if response.has_focus() && ui.input(|i| i.key_pressed(Key::Escape)) { query.clear(); state.searching = false; }
                 monitor.set_query(query);
-            }
-        });
+            });
+        }
     });
     action
 }

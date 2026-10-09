@@ -26,7 +26,7 @@ use scene::{Scene, BACKGROUND, GAP, ROW_H};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tray::{MenuState, Tray, TrayAction};
-use ui::{ChatState, ComposeState, HudState, HUD_HEIGHT, PANEL_HEIGHT};
+use ui::{ChatState, ComposeState, HudState, PANEL_HEIGHT};
 
 /// Room above the first row (drag handle) and below the last one.
 const TOP_INSET: f32 = 14.0;
@@ -182,7 +182,7 @@ impl App {
 
     /// Height of everything that is not rooms: insets, HUD and chat panel.
     fn chrome(&self) -> f32 {
-        TOP_INSET + BOTTOM_INSET + if self.panel_open() { PANEL_HEIGHT } else { 0.0 } + if self.monitor.shows_hud() { HUD_HEIGHT } else { 0.0 }
+        TOP_INSET + BOTTOM_INSET + if self.panel_open() { PANEL_HEIGHT } else { 0.0 } + if self.monitor.shows_hud() { ui::hud_height(&self.hud, &self.monitor) } else { 0.0 }
     }
 
     /// Height that shows the agents' rows, up to the user's row count (at
@@ -427,7 +427,7 @@ impl eframe::App for App {
             let full = ui.max_rect();
             ui.painter().rect_filled(full, CornerRadius::same(14), BACKGROUND);
             let panel_h = if panel_open { PANEL_HEIGHT } else { 0.0 };
-            let hud_h = if shows_hud { HUD_HEIGHT } else { 0.0 };
+            let hud_h = if shows_hud { ui::hud_height(&self.hud, &self.monitor) } else { 0.0 };
             let scene_rect = Rect::from_min_max(full.min, egui::pos2(full.max.x, full.max.y - panel_h - hud_h));
             let hud_rect = Rect::from_min_max(egui::pos2(full.min.x, scene_rect.max.y), egui::pos2(full.max.x, scene_rect.max.y + hud_h));
             let panel_rect = Rect::from_min_max(egui::pos2(full.min.x, hud_rect.max.y), full.max);
