@@ -6,6 +6,7 @@
 mod alerts;
 mod ansi;
 mod assets;
+mod commands;
 mod events;
 mod herdr;
 mod l10n;
@@ -443,6 +444,30 @@ impl App {
         }
     }
 
+    /// Full screen left or entered by other means than the app's own (the
+    /// system's gestures, Mission Control, the title bar's button): follow
+    /// the window, so the layout, the app's kind and its place come back
+    /// as they would after Esc. Nothing is done mid-transition.
+    fn follow_native_fullscreen(&mut self, ctx: &egui::Context) {
+        if self.enter_fullscreen_at.is_some() || self.fullscreen_at.is_some() { return; }
+        let Some(native) = ctx.input(|i| i.viewport().fullscreen) else { return };
+        if self.fullscreen && !native {
+            self.fullscreen = false;
+            self.leaving_fullscreen = true;
+            self.fullscreen_at = Some(Instant::now());
+            self.resize_start = None;
+            self.size_changed_at = None;
+            ctx.request_repaint_after(Duration::from_millis(1250));
+        } else if !self.fullscreen && native {
+            self.fullscreen = true;
+            self.fullscreen_at = Some(Instant::now());
+            self.resize_start = None;
+            self.size_changed_at = None;
+            self.grip = false;
+            ctx.request_repaint_after(Duration::from_millis(1250));
+        }
+    }
+
     /// The toggle into full screen, once the app is ready for it.
     fn enter_fullscreen_when_due(&mut self, ctx: &egui::Context) {
         let Some(at) = self.enter_fullscreen_at else { return };
@@ -666,6 +691,7 @@ impl eframe::App for App {
         if toggle { let on = !self.fullscreen; self.set_fullscreen(ctx, on); }
         if escape && self.fullscreen && !self.panel_open() && !self.hud.searching && !self.show_log { self.set_fullscreen(ctx, false); }
         self.enter_fullscreen_when_due(ctx);
+        self.follow_native_fullscreen(ctx);
         if self.settle_fullscreen(ctx) { needs_fit = true; }
         // The installer's outcome.
         if let Some(rx) = &self.installing {

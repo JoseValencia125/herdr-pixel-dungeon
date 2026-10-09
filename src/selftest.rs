@@ -174,6 +174,11 @@ pub fn run() {
     assert!(screen.len() == 2 && crate::ansi::plain(&screen) == ["ok plain", "● x"], "ANSI lines: {:?}", crate::ansi::plain(&screen));
     assert!(screen[0][0].bold && screen[0][0].fg == Some(egui::Color32::from_rgb(56, 196, 56)) && screen[0][1].fg.is_none() && !screen[0][1].bold);
     assert!(screen[1][0].fg == Some(egui::Color32::from_rgb(215, 119, 87)) && screen[1][1].bg == Some(egui::Color32::from_rgb(1, 2, 3)));
+    let commands = crate::commands::slash_commands("claude", "/nonexistent", std::path::Path::new("/nonexistent"));
+    assert!(commands.iter().any(|c| c.name == "help") && commands.iter().any(|c| c.name == "compact"));
+    let names = |draft: &str| crate::commands::matching(&commands, draft).iter().map(|c| c.name.clone()).collect::<Vec<_>>();
+    assert!(names("/co").contains(&"compact".to_string()) && names("/co").iter().all(|n| n.starts_with("co")) && names("/compact x").is_empty() && names("hi").is_empty());
+    assert!(crate::commands::slash_commands("kiro", "/nonexistent", std::path::Path::new("/nonexistent")).iter().any(|c| c.name == "quit"));
     let created = br#"{"result":{"root_pane":{"pane_id":"w3:p1"},"workspace":{"workspace_id":"w3"}}}"#;
     assert!(created_workspace(created).as_deref() == Some("w3") && created_workspace(b"{}").is_none());
     let codex = [

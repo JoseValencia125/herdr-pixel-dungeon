@@ -257,11 +257,15 @@ pub struct ChatState {
     screen: Vec<Vec<Span>>,
     screen_rx: Option<Receiver<String>>,
     next_screen: f64,
+    /// The harness's slash commands (read once), and the one highlighted
+    /// in the "/" menu.
+    slash: Option<Vec<crate::commands::SlashCommand>>,
+    slash_choice: usize,
 }
 
 impl ChatState {
     pub fn new(agent_id: &str) -> ChatState {
-        ChatState { agent_id: agent_id.to_string(), draft: String::new(), lines: vec![], note: None, sending: None, choice: None, tail_rx: None, next_tail: 0.0, focus: true, status_seen: String::new(), screen: vec![], screen_rx: None, next_screen: 0.0 }
+        ChatState { agent_id: agent_id.to_string(), draft: String::new(), lines: vec![], note: None, sending: None, choice: None, tail_rx: None, next_tail: 0.0, focus: true, status_seen: String::new(), screen: vec![], screen_rx: None, next_screen: 0.0, slash: None, slash_choice: 0 }
     }
 
     fn menu(&self, agent: &Agent) -> MenuOptions {
@@ -477,15 +481,64 @@ fn input_row(ui: &mut Ui, monitor: &Monitor, agent: &Agent, state: &mut ChatStat
         let hint = if agent.status == "blocked" { trf("↑↓ y ⏎ eligen · o responde a {}…", &[&agent.name]) } else { trf("Escribir a {}…", &[&agent.name]) };
         let buttons_width = match agent.status.as_str() { "blocked" => 150.0, "working" => 80.0, _ => 26.0 };
         let mut draft = state.draft.clone();
+        // The "/" menu: the harness's commands matching what is typed so
+        // far. ↑↓ move, tab or ⏎ complete (⏎ then sends), a click too.
+        let matches: Vec<(String, String)> = if agent.status != "blocked" && draft.starts_with('/') {
+            let commands = state.slash.get_or_insert_with(|| crate::commands::slash_commands(crate::herdr::harness_for(&agent.name), &agent.cwd, &crate::herdr::home_dir()));
+            crate::commands::matching(commands, &draft).into_iter().map(|c| (c.name.clone(), c.about.clone())).collect()
+        } else {
+            vec![]
+        };
+        let menu_open = !matches.is_empty();
+        let mut complete: Option<String> = None;
+        if menu_open {
+            state.slash_choice = state.slash_choice.min(matches.len() - 1);
+            let (up, down, tab) = ui.input_mut(|i| (i.consume_key(egui::Modifiers::NONE, Key::ArrowUp), i.consume_key(egui::Modifiers::NONE, Key::ArrowDown), i.consume_key(egui::Modifiers::NONE, Key::Tab)));
+            if up { state.slash_choice = state.slash_choice.saturating_sub(1); }
+            if down { state.slash_choice = (state.slash_choice + 1).min(matches.len() - 1); }
+            if tab { complete = Some(matches[state.slash_choice].0.clone()); }
+        } else {
+            state.slash_choice = 0;
+        }
         // Roomy: the box is a line and a half tall, so typing does not feel cramped.
         let margin = if roomy { Margin::symmetric(8, 8) } else { Margin::symmetric(6, 3) };
         let edit = egui::TextEdit::singleline(&mut draft).hint_text(hint).font(FontId::monospace(font)).margin(margin).desired_width(ui.available_width() - buttons_width).interactive(!sending);
         let response = ui.add(edit);
         if state.focus { response.request_focus(); state.focus = false; }
         let submitted = response.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+        if menu_open {
+            let chosen = &matches[state.slash_choice].0;
+            if submitted && draft.trim() != format!("/{chosen}") { complete = Some(chosen.clone()); }
+            let width = response.rect.width().min(560.0);
+            egui::Area::new(ui.id().with("slash-menu")).order(egui::Order::Foreground).pivot(Align2::LEFT_BOTTOM).fixed_pos(response.rect.left_top() - vec2(0.0, 4.0)).show(ui.ctx(), |ui| {
+                Frame::new().fill(Color32::from_rgb(28, 30, 36)).stroke(Stroke::new(1.0_f32, Color32::from_gray(80))).corner_radius(CornerRadius::same(6)).inner_margin(Margin::symmetric(6, 6)).show(ui, |ui| {
+                    ui.set_width(width);
+                    ui.spacing_mut().item_spacing = vec2(0.0, 1.0);
+                    for (i, (name, about)) in matches.iter().take(12).enumerate() {
+                        let picked = i == state.slash_choice;
+                        let fill = if picked { alpha(Color32::from_rgb(140, 217, 115), 0.25) } else { Color32::TRANSPARENT };
+                        let row = Frame::new().fill(fill).corner_radius(CornerRadius::same(4)).inner_margin(Margin::symmetric(6, 3)).show(ui, |ui| {
+                            ui.set_width(ui.available_width());
+                            ui.horizontal(|ui| {
+                                ui.label(mono(&format!("/{name}"), 12.0).color(Color32::WHITE).strong());
+                                ui.add(egui::Label::new(RichText::new(about).size(fs(11.0)).color(DIM)).truncate());
+                            });
+                        }).response.interact(egui::Sense::click());
+                        if row.clicked() { complete = Some(name.clone()); }
+                    }
+                    if matches.len() > 12 { ui.label(mono(&format!("… +{}", matches.len() - 12), 10.0).color(DIM)); }
+                });
+            });
+        }
+        if let Some(name) = complete {
+            draft = format!("/{name} ");
+            state.focus = true;
+            ui.ctx().request_repaint();
+        }
+        let completing = menu_open && draft.ends_with(' ') && submitted;
         let empty = draft.trim().is_empty();
         state.draft = draft;
-        if submitted && !sending {
+        if submitted && !sending && !completing {
             if agent.status == "blocked" && empty {
                 // Nothing typed: ⏎ picks the option its terminal already highlights.
                 state.run(monitor.press(&["enter".into()], agent));

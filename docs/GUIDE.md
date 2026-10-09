@@ -30,7 +30,7 @@ Herdr does not report subagents, so for Claude Code agents the app reads the tra
 
 ## Chat
 
-Click a room to open a chat panel for that agent: its terminal as it shows, colours and all (a question keeps its plain lines, with the options to click), a box to send a message or the answer to a question (drop files on the panel to add their paths), and buttons to accept or decline a permission prompt, interrupt the agent (esc), or focus its pane in Herdr.
+Click a room to open a chat panel for that agent: its terminal as it shows, colours and all (a question keeps its plain lines, with the options to click), a box to send a message or the answer to a question (drop files on the panel to add their paths; type `/` for the harness's commands, with Claude Code's custom commands, skills and plugin skills), and buttons to accept or decline a permission prompt, interrupt the agent (esc), or focus its pane in Herdr.
 
 While the agent is asking something with numbered options, ↑ and ↓ (or a click) highlight an option in the panel and put its text in the box; Enter then picks it — moving the agent's own menu to that option — or sends the text when the question is plain text. With nothing typed, Enter picks the option its terminal already highlights.
 
