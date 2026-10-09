@@ -100,7 +100,10 @@ struct ChatPanel: View {
                 ForEach(Array(lines.enumerated()),id:\.offset) { _,line in
                     Text(line).lineLimit(1).truncationMode(.tail)
                 }
-                if lines.isEmpty { Text(tr("Leyendo la terminal…")).foregroundStyle(.secondary) }
+                if lines.isEmpty && agent.foreground { Text(tr("Leyendo la terminal…")).foregroundStyle(.secondary) }
+                if !agent.foreground {
+                    Text(tr("Este chat no está abierto en su panel. Ábrelo en Claude para responderle.")).foregroundStyle(.secondary)
+                }
             }
             .font(.system(size:10,design:.monospaced))
             .foregroundStyle(Color(white:0.85))
@@ -128,6 +131,8 @@ struct ChatPanel: View {
                 }
             }
             .controlSize(.small)
+            // Keys and text would reach whichever chat the pane shows instead.
+            .disabled(!agent.foreground)
             if let note = note {
                 Text(note).font(.system(size:10)).foregroundStyle(.orange).lineLimit(1)
             }

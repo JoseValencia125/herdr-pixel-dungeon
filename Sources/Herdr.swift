@@ -13,6 +13,11 @@ struct Agent: Identifiable, Equatable {
     var subagents = 0             // subagents with recent transcript activity
     var branch: String? = nil     // git branch of cwd, if it is a repository
     var action: String? = nil     // what a working Claude Code agent is doing: read, forge, brew, summon, plan, type
+    var pane: String? = nil       // Herdr pane hosting this room, when it differs from id (background jobs)
+    var job: String? = nil        // Claude Code background job id, for one room per job
+    var foreground = true         // the pane is showing this chat, so it can be read and typed to
+    var detail: String? = nil     // a background job's latest step
+    var paneId: String { pane ?? id }
     var folder: String { (cwd as NSString).lastPathComponent }
     var label: String { tr(["working":"Trabajando", "blocked":"Necesita atención", "idle":"En espera", "done":"Listo"][status] ?? "Sin estado") }
     var color: Color { switch status { case "working": return .orange; case "blocked": return .red; case "done": return .green; case "idle": return .gray; default: return .gray } }
@@ -84,39 +89,90 @@ func runHerdr(_ arguments: [String], session: String, timeout seconds: TimeInter
 
 func fetchSnapshot(session: String) throws -> [Agent] {
     let data = try runHerdr(["api", "snapshot"], session: session)
-    let jobs = backgroundJobs()
-    return try decodeSnapshot(data).map { agent in
+    let rooms = split(panes: try decodeSnapshot(data), jobs: backgroundJobs())
+    return rooms.map { agent in
         var agent = agent
-        let path = (agent.cwd as NSString).expandingTildeInPath
-        agent.branch = gitBranch(at: path)
-        if agent.name == "claude" { agent = agent.with(jobs: jobs[path] ?? []) }
+        agent.branch = gitBranch(at: (agent.cwd as NSString).expandingTildeInPath)
         guard let session = agent.session else { return agent }
         agent.action = currentAction(session: session)
         return agent.with(subagents: activeSubagents(session: session))
-    }
+    }.sorted { $0.rank == $1.rank ? $0.id.localizedStandardCompare($1.id) == .orderedAscending : $0.rank < $1.rank }
 }
 
-/// Claude Code background sessions run as jobs, not in the pane: the pane
-/// only shows the job list waiting for input, so Herdr reports it idle while
-/// its jobs work. Each job keeps ~/.claude/jobs/<id>/state.json with its
-/// state and cwd. Returns the states of recently updated jobs by cwd.
-func backgroundJobs(within seconds: TimeInterval = 3600) -> [String:[String]] {
+/// A Claude Code background job, from ~/.claude/jobs/<id>/state.json.
+struct ClaudeJob {
+    let id: String
+    let name: String
+    let state: String       // working, blocked, idle or done
+    let cwd: String         // where it was started, which is its pane's cwd
+    let directory: String   // where it works (its worktree, if any)
+    let session: String?    // transcript id, for actions and subagents
+    let detail: String?
+    let updated: Date
+    /// Worth a room: busy, needing input, or finished in the last 10 minutes.
+    var active: Bool { state == "working" || state == "blocked" || updated > Date().addingTimeInterval(-600) }
+}
+
+/// Claude Code background sessions run as jobs, not in the pane: one pane
+/// hosts several chats and shows only the one picked in its job list, so
+/// Herdr sees a single agent. Each job keeps ~/.claude/jobs/<id>/state.json
+/// with its state and cwd. Returns recently updated jobs by cwd.
+func backgroundJobs(within seconds: TimeInterval = 3600) -> [String:[ClaudeJob]] {
     let fm = FileManager.default
     let root = fm.homeDirectoryForCurrentUser.appendingPathComponent(".claude/jobs")
     guard let dirs = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil) else { return [:] }
     let dates = ISO8601DateFormatter()
     dates.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     let cutoff = Date().addingTimeInterval(-seconds)
-    var byCwd: [String:[String]] = [:]
+    var byCwd: [String:[ClaudeJob]] = [:]
     for dir in dirs {
         guard let data = try? Data(contentsOf: dir.appendingPathComponent("state.json")),
-              let job = try? JSONSerialization.jsonObject(with: data) as? [String:Any],
-              let state = job["state"] as? String,
-              let cwd = job["originCwd"] as? String ?? job["cwd"] as? String,
-              let updated = (job["updatedAt"] as? String).flatMap(dates.date(from:)), updated > cutoff else { continue }
-        byCwd[cwd, default: []].append(state)
+              let row = try? JSONSerialization.jsonObject(with: data) as? [String:Any],
+              let job = ClaudeJob(id: dir.lastPathComponent, row: row, dates: dates), job.updated > cutoff else { continue }
+        byCwd[job.cwd, default: []].append(job)
     }
-    return byCwd
+    return byCwd.mapValues { $0.sorted { $0.id < $1.id } }
+}
+
+extension ClaudeJob {
+    init?(id: String, row: [String:Any], dates: ISO8601DateFormatter) {
+        guard let raw = row["state"] as? String,
+              let cwd = row["originCwd"] as? String ?? row["cwd"] as? String,
+              let updated = (row["updatedAt"] as? String).flatMap(dates.date(from:)) else { return nil }
+        self.id = id
+        name = row["name"] as? String ?? id
+        switch raw {
+        case "working", "running": state = "working"
+        case "blocked", "needs_input", "waiting": state = "blocked"
+        case "done", "completed", "failed": state = "done"
+        default: state = "idle"
+        }
+        self.cwd = cwd
+        directory = row["worktreePath"] as? String ?? cwd
+        // The transcript the job writes to now; it changes when a chat is resumed.
+        session = (row["linkScanPath"] as? String).map { (($0 as NSString).lastPathComponent as NSString).deletingPathExtension }
+            ?? row["resumeSessionId"] as? String ?? row["sessionId"] as? String
+        detail = row["detail"] as? String
+        self.updated = updated
+    }
+}
+
+/// One room per active background job instead of one per pane. A job goes to
+/// the pane showing it (its title is the job's name), otherwise to the first
+/// Claude pane in its cwd. Panes without active jobs keep their single room.
+func split(panes: [Agent], jobs: [String:[ClaudeJob]]) -> [Agent] {
+    let claude = panes.filter { $0.name == "claude" }
+    var owner: [String:String] = [:]   // job id -> pane id
+    for job in jobs.values.joined() {
+        let here = claude.filter { ($0.cwd as NSString).expandingTildeInPath == job.cwd }
+        if let pane = here.first(where: { $0.activity == job.name }) { owner[job.id] = pane.id }
+        else if job.active, let pane = here.first { owner[job.id] = pane.id }
+    }
+    return panes.flatMap { pane -> [Agent] in
+        let mine = (jobs[(pane.cwd as NSString).expandingTildeInPath] ?? []).filter { owner[$0.id] == pane.id }
+        guard pane.name == "claude", !mine.isEmpty else { return [pane] }
+        return mine.map { pane.room(for: $0) }
+    }
 }
 
 /// Current git branch for a directory, read straight from .git/HEAD (no
@@ -147,11 +203,14 @@ func gitBranch(at path: String) -> String? {
 }
 
 extension Agent {
-    /// A pane takes the most urgent state among itself and its background
-    /// jobs: a job needing input outranks one working, which outranks idle.
-    func with(jobs states: [String]) -> Agent {
-        var agent = self
-        if let urgent = ["blocked", "working"].first(where: states.contains), Agent.rank(urgent) < rank { agent.status = urgent }
+    /// The room of a background job hosted by this pane. The chat the pane
+    /// shows takes the more urgent of Herdr's live state and the job's.
+    func room(for job: ClaudeJob) -> Agent {
+        let shown = activity == job.name
+        var agent = Agent(id: "\(id):\(job.id)", name: name, status: job.state, project: project, activity: job.name,
+                          cwd: (job.directory as NSString).abbreviatingWithTildeInPath, session: job.session)
+        agent.pane = id; agent.job = job.id; agent.foreground = shown; agent.detail = job.detail
+        if shown && rank < agent.rank { agent.status = status }
         return agent
     }
 
@@ -277,21 +336,21 @@ extension Monitor {
             done(failure)
         }
         if agent.status == "blocked" {
-            act(["pane", "send-text", agent.id, message], ["pane", "send-keys", agent.id, "enter"], done: log)
+            act(["pane", "send-text", agent.paneId, message], ["pane", "send-keys", agent.paneId, "enter"], done: log)
         } else {
-            act(["agent", "prompt", agent.id, message, "--timeout", "4000"], done: log)
+            act(["agent", "prompt", agent.paneId, message, "--timeout", "4000"], done: log)
         }
     }
 
     /// Press keys in the agent's pane: "enter" accepts a permission prompt's
     /// highlighted option, "esc" rejects it or interrupts the agent.
     func press(_ keys: [String], on agent: Agent, done: @escaping (String?) -> Void) {
-        act(["agent", "send-keys", agent.id] + keys, done: done)
+        act(["agent", "send-keys", agent.paneId] + keys, done: done)
     }
 
     /// Bring the agent's pane to the front inside Herdr.
     func focus(_ agent: Agent, done: @escaping (String?) -> Void) {
-        act(["agent", "focus", agent.id], done: done)
+        act(["agent", "focus", agent.paneId], done: done)
     }
 
     /// The last non-blank lines of the agent's terminal, so a question can be
@@ -300,12 +359,15 @@ extension Monitor {
         let selectedSession = session, demoMode = demo
         DispatchQueue.global(qos: .userInitiated).async {
             let text: String
-            if demoMode {
+            if !agent.foreground {
+                // The pane shows another chat; its terminal is not this job's.
+                text = agent.detail ?? ""
+            } else if demoMode {
                 text = agent.status == "blocked"
                     ? "● Bash(rm -rf build && make)\n  Do you want to proceed?\n❯ 1. Yes\n  2. Yes, and don't ask again\n  3. No, and tell Claude what to do"
                     : "● \(agent.activity)\n  ⎿ Leyendo archivos del proyecto…"
             } else {
-                let data = try? runHerdr(["agent", "read", agent.id, "--source", "recent", "--lines", "40", "--format", "text"], session: selectedSession)
+                let data = try? runHerdr(["agent", "read", agent.paneId, "--source", "recent", "--lines", "40", "--format", "text"], session: selectedSession)
                 text = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
             }
             let rows = text.split(separator: "\n", omittingEmptySubsequences: false)

@@ -208,6 +208,13 @@ func selfTest() throws {
     precondition(gitBranch(at:repo.appendingPathComponent("src").path)=="feature/x");try? FileManager.default.removeItem(at:repo)
     precondition(Hero.harness(for:"claude")=="claude" && Hero.harness(for:"Codex CLI")=="codex" && Hero.harness(for:"opencode")=="hero")
     let withSession=try decodeSnapshot(Data(#"{"result":{"snapshot":{"agents":[{"pane_id":"a","agent":"claude","agent_session":{"kind":"id","value":"s-1"}}]}}}"#.utf8));precondition(withSession[0].session=="s-1" && withSession[0].subagents==0)
+    let dates=ISO8601DateFormatter();dates.formatOptions=[.withInternetDateTime,.withFractionalSeconds];let now=dates.string(from:Date()),old=dates.string(from:Date().addingTimeInterval(-1800))
+    let jobs=[["state":"working","name":"chat a","cwd":"/r","updatedAt":now],["state":"working","name":"chat b","cwd":"/r","updatedAt":now,"linkScanPath":"/p/t-2.jsonl"],["state":"done","name":"chat c","cwd":"/r","updatedAt":old]].enumerated().compactMap{ClaudeJob(id:"j\($0.offset)",row:$0.element,dates:dates)}
+    let panes=[Agent(id:"p",name:"claude",status:"blocked",project:"p",activity:"chat a",cwd:"/r"),Agent(id:"q",name:"codex",status:"idle",project:"p",activity:"a",cwd:"/r")]
+    let rooms=split(panes:panes,jobs:["/r":jobs])
+    precondition(rooms.map(\.id)==["p:j0","p:j1","q"] && rooms.allSatisfy{$0.paneId==($0.name=="claude" ? "p" : "q")},"One room per active job")
+    precondition(rooms[0].foreground && rooms[0].status=="blocked" && !rooms[1].foreground && rooms[1].status=="working" && rooms[1].session=="t-2")
+    precondition(split(panes:panes,jobs:[:]).map(\.id)==["p","q"])
     precondition(NSImage(contentsOf:resource.appendingPathComponent("heroes/heroes.png"))?.size==NSSize(width:48,height:CGFloat(Hero.order.count*32)),"Hero sheet layout mismatch")
     for style in RoomStyle.all{precondition(NSImage(contentsOf:resource.appendingPathComponent("rooms/\(style.background).png")) != nil,"Missing room art: \(style.background)")}
     precondition(toolAction("WebSearch")=="read" && toolAction("Edit")=="forge" && toolAction("Bash")=="brew" && toolAction("Task")=="summon" && toolAction("TodoWrite")=="plan" && toolAction("mcp__x")=="type")
