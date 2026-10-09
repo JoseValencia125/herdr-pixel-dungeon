@@ -11,6 +11,7 @@ struct Agent: Identifiable, Equatable {
     let cwd: String
     var session: String? = nil    // agent_session id (Claude Code session UUID)
     var subagents = 0             // subagents with recent transcript activity
+    var subagentActions: [String] = []   // what each of them is doing (read, forge, brew…), from its own transcript
     var branch: String? = nil     // git branch of cwd, if it is a repository
     var action: String? = nil     // what a working Claude Code agent is doing: read, forge, brew, summon, plan, type
     var question: String? = nil   // what a blocked background job is asking (its first line)
@@ -94,7 +95,9 @@ func fetchSnapshot(session: String) throws -> [Agent] {
         if agent.name == "claude" { agent = agent.with(jobs: jobs[path] ?? []) }
         guard let session = agent.session else { return agent }
         agent.action = currentAction(session: session)
-        return agent.with(subagents: activeSubagents(session: session))
+        let helpers = subagentActions(session: session)
+        agent.subagentActions = helpers
+        return agent.with(subagents: helpers.count)
     }
 }
 
@@ -183,20 +186,42 @@ extension Agent {
 /// Herdr does not report subagents, but Claude Code writes one transcript per
 /// subagent under ~/.claude/projects/<project>/<session>/subagents/. A
 /// subagent counts as active while its transcript was written recently.
-func activeSubagents(session: String, within seconds: TimeInterval = 30) -> Int {
+/// For each active subagent this returns what it is doing: the last tool in
+/// its own transcript (or typing when it only wrote text), in a stable
+/// order. Tails are cached by modification date, so a quiet transcript is
+/// read once.
+func subagentActions(session: String, within seconds: TimeInterval = 30) -> [String] {
+    activeSubagentFiles(session: session, within: seconds).map { file, modified in
+        transcriptActions.lock()
+        defer { transcriptActions.unlock() }
+        if let cached = transcriptActions.cache[file.path], cached.modified == modified { return cached.action }
+        let action = fileTail(file.path, bytes: 65_536).flatMap { lastAction(transcriptTail: $0) } ?? "type"
+        transcriptActions.cache[file.path] = (modified, action)
+        return action
+    }
+}
+
+private final class ActionCache: NSLock {
+    var cache: [String: (modified: Date, action: String)] = [:]
+}
+private let transcriptActions = ActionCache()
+
+private func activeSubagentFiles(session: String, within seconds: TimeInterval) -> [(URL, Date)] {
     let fm = FileManager.default
     let projects = fm.homeDirectoryForCurrentUser.appendingPathComponent(".claude/projects")
-    guard let dirs = try? fm.contentsOfDirectory(at: projects, includingPropertiesForKeys: nil) else { return 0 }
+    guard let dirs = try? fm.contentsOfDirectory(at: projects, includingPropertiesForKeys: nil) else { return [] }
     let cutoff = Date().addingTimeInterval(-seconds)
     for dir in dirs {
         let folder = dir.appendingPathComponent(session).appendingPathComponent("subagents")
         guard let files = try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.contentModificationDateKey]) else { continue }
-        return files.filter { file in
-            file.pathExtension == "jsonl" &&
-            ((try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast) > cutoff
-        }.count
+        return files.compactMap { file -> (URL, Date)? in
+            guard file.pathExtension == "jsonl",
+                  let modified = try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
+                  modified > cutoff else { return nil }
+            return (file, modified)
+        }.sorted { $0.0.lastPathComponent < $1.0.lastPathComponent }
     }
-    return 0
+    return []
 }
 
 /// Which rooms the HUD's state chips let through.
@@ -390,11 +415,13 @@ func demoAgents(tick: Int) -> [Agent] {
                  ("gemini", "Documentation", "done", "Documentación actualizada"),
                  ("codex", "Game engine", "working", "Ajustando el movimiento")]
     let subagents = [2, 0, 0, 0, 0, 5]
+    let helpers = [["read", "brew"], [], [], [], [], ["forge", "read", "brew", "gems", "type"]]
     let branches: [String?] = ["main", "feature/tests", nil, "main", "docs", "physics"]
     return specs.enumerated().map { i, s in
         var agent = Agent(id: "demo:\(i)", name: s.0, status: s.2, project: s.1, activity: tr(s.3), cwd: "~/demo/\(s.1.lowercased().replacingOccurrences(of: " ", with: "-"))")
         agent.branch = branches[i]
         if i == 0 { agent.action = ["read", "forge", "brew", "summon", "plan", "type"][(tick / 8) % 6] }   // claude shows each action
+        agent.subagentActions = helpers[i]
         return agent.with(subagents: subagents[i])
     }
 }

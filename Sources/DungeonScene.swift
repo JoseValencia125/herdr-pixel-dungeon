@@ -92,6 +92,7 @@ final class AgentRow: SKNode {
     private var playerAnimation = ""
     private var harness = Hero.fallback
     private var subagents = -1
+    private var subagentActions: [String] = []
     private var activity = ""
     private var place = ""
     private var nameText = ""
@@ -235,8 +236,9 @@ final class AgentRow: SKNode {
         } else {
             setPlayer()
         }
-        if agent.subagents != subagents {
+        if agent.subagents != subagents || agent.subagentActions != subagentActions {
             subagents = agent.subagents
+            subagentActions = agent.subagentActions
             setParty()
         }
         layoutText()
@@ -576,9 +578,8 @@ final class AgentRow: SKNode {
     /// typing at the laptop (thinking, writing). Without one it makes the
     /// rounds of every station.
     private func startWorking() {
-        let stations: [String: CGPoint] = ["type": style.spot, "plan": style.spot, "read": CGPoint(x: 53, y: 33),
-                                           "forge": CGPoint(x: 32, y: 40), "brew": CGPoint(x: 114, y: 63),
-                                           "gems": CGPoint(x: 108, y: 38), "summon": CGPoint(x: 72, y: 76)]
+        var stations = AgentRow.stations.mapValues(\.spot)
+        stations["type"] = style.spot; stations["plan"] = style.spot
         var station = "type"
         func at(_ name: String) -> SKAction { .run { station = name } }
         func activity(_ name: String) -> SKAction {
@@ -856,31 +857,62 @@ final class AgentRow: SKNode {
         blanket.isHidden = false
     }
 
-    /// Active subagents appear as small heroes of the same harness around
-    /// the main hero, some in front and some behind.
+    /// Where each workshop station is in the room art, and which way a hero
+    /// at it faces. Typing and planning happen at the desk (`style.spot`).
+    static let stations: [String: (spot: CGPoint, facing: CGFloat)] = [
+        "read": (CGPoint(x: 53, y: 33), 1), "forge": (CGPoint(x: 32, y: 40), -1), "brew": (CGPoint(x: 114, y: 63), 1),
+        "gems": (CGPoint(x: 108, y: 38), 1), "summon": (CGPoint(x: 72, y: 76), 1)]
+
+    /// Active subagents are small heroes of the same harness, each at the
+    /// station of its own last tool (read at the shelf, brew at the alchemy
+    /// table…), a step darker so the lead hero stays the clearest shape.
+    /// Several at one station stand side by side; one with no known tool
+    /// waits on the free floor in front of the desk. When a subagent changes
+    /// tool it walks to the new station.
     private func setParty() {
-        party.removeAllChildren()
-        guard subagents > 0 else { return }
+        let count = min(max(subagents, 0), 4)
+        while party.children.count > count { party.children.last?.removeFromParent() }
+        guard count > 0 else { return }
         let textures = host.heroFrames(harness, kind: "work")
-        let base = roomPoint(style.spot)
-        let spots: [(CGFloat, CGFloat)] = [(-42, -18), (42, -18), (-46, 12), (46, 12)]   // in points; negative y is in front
-        for i in 0..<min(subagents, spots.count) {
-            let mini = SKSpriteNode(texture: textures.first)
-            mini.size = CGSize(width: 24, height: 24)
-            let side: CGFloat = spots[i].0 < 0 ? -1 : 1
-            let home = CGPoint(x: base.x + spots[i].0, y: base.y + spots[i].1)
-            mini.position = home
-            mini.zPosition = spots[i].1 < 0 ? 3 : 1
-            mini.color = .black
-            mini.colorBlendFactor = 0.3    // a step darker so the lead hero stays the clearest shape
-            mini.xScale = side < 0 ? 1 : -1
-            if textures.count > 1 {
-                mini.run(.repeatForever(.animate(with: textures, timePerFrame: 0.16)))
+        // The lead hero already stands at its own station: start beside it.
+        var taken: [String: Int] = action.map { [$0: 1] } ?? [:]
+        for i in 0..<count {
+            let action = i < subagentActions.count ? subagentActions[i] : "idle"
+            let station = AgentRow.stations[action]
+            // Typing and planning share the desk with the lead hero: stand beside it.
+            let base = station?.spot ?? (action == "type" || action == "plan" ? CGPoint(x: style.spot.x, y: style.spot.y) : CGPoint(x: 72, y: 88))
+            let k = taken[action, default: 0]
+            taken[action] = k + 1
+            let nudge: [CGFloat] = action == "type" || action == "plan" ? [-18, 18, -30, 30] : [0, 11, -11, 22]
+            let art = CGPoint(x: base.x + nudge[k % nudge.count], y: base.y + (k > 0 ? 2 : 0))
+            let home = roomPoint(art)
+            let mini: SKSpriteNode
+            if i < party.children.count, let existing = party.children[i] as? SKSpriteNode {
+                mini = existing
+                mini.removeAction(forKey: "walk")
+                let distance = hypot(home.x - mini.position.x, home.y - mini.position.y)
+                mini.run(.move(to: home, duration: TimeInterval(distance / 50)), withKey: "walk")
+            } else {
+                mini = SKSpriteNode(texture: textures.first)
+                mini.size = CGSize(width: 24, height: 24)
+                mini.position = home
+                mini.color = .black
+                mini.colorBlendFactor = 0.3
+                if textures.count > 1 { mini.run(.repeatForever(.animate(with: textures, timePerFrame: 0.16))) }
+                party.addChild(mini)
             }
-            mini.run(.repeatForever(.sequence([.wait(forDuration: 0.4 * Double(i)),
-                                               .moveBy(x: side * 6, y: 0, duration: 0.9),
-                                               .moveBy(x: -side * 6, y: 0, duration: 0.9)])))
-            party.addChild(mini)
+            mini.zPosition = art.y > style.spot.y ? 3 : 1    // in front of the desk or behind it
+            mini.xScale = (station?.facing ?? 1) * (action == "type" || action == "plan" ? (nudge[k % nudge.count] < 0 ? 1 : -1) : 1)
+            // Readers and planners hold an open book or scroll.
+            mini.childNode(withName: "book")?.removeFromParent()
+            if action == "read" || action == "plan" {
+                let book = SKSpriteNode(texture: action == "plan" ? host.scrollTexture(open: true) : host.bookTexture(open: true))
+                book.name = "book"
+                book.size = CGSize(width: 12, height: 8)
+                book.position = CGPoint(x: 0, y: -4)
+                book.zPosition = 0.2
+                mini.addChild(book)
+            }
         }
     }
 
