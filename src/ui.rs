@@ -262,6 +262,9 @@ pub fn chat_panel(ui: &mut Ui, monitor: &Monitor, agent: &Agent, state: &mut Cha
         }
     }
 
+    // The panel fills what it is given: PANEL_HEIGHT under the rooms, the
+    // whole side in full screen.
+    let total = ui.available_height();
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing = vec2(6.0, 7.0);
         ui.horizontal(|ui| {
@@ -280,7 +283,7 @@ pub fn chat_panel(ui: &mut Ui, monitor: &Monitor, agent: &Agent, state: &mut Cha
                 }
             });
         });
-        let body_height = PANEL_HEIGHT - 16.0 - 7.0 * 2.0 - 22.0 - if standalone { 14.0 } else { 24.0 } - if state.note.is_some() { 16.0 } else { 0.0 };
+        let body_height = total - 7.0 * 2.0 - 22.0 - if standalone { 14.0 } else { 24.0 } - if state.note.is_some() { 16.0 } else { 0.0 };
         Frame::new().fill(alpha(Color32::BLACK, 0.45)).corner_radius(CornerRadius::same(5)).inner_margin(Margin::same(6)).show(ui, |ui| {
             ui.set_min_height(body_height.max(40.0));
             ui.set_max_height(body_height.max(40.0));
@@ -427,6 +430,7 @@ pub fn compose_panel(ui: &mut Ui, monitor: &Monitor, prefs: &mut Prefs, state: &
     if prefs.create_folder.is_empty() { if let Some(first) = known.first() { prefs.create_folder = first.clone(); prefs.save(); } }
     if ui.input(|i| i.key_pressed(Key::Escape)) { action.close = true; }
     let green = Color32::from_rgb(140, 217, 115);
+    let total = ui.available_height();
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing = vec2(6.0, 7.0);
         ui.horizontal(|ui| {
@@ -458,7 +462,7 @@ pub fn compose_panel(ui: &mut Ui, monitor: &Monitor, prefs: &mut Prefs, state: &
             if folder != prefs.create_folder { prefs.create_folder = folder; prefs.save(); }
         });
         Frame::new().fill(alpha(Color32::BLACK, 0.45)).corner_radius(CornerRadius::same(5)).inner_margin(Margin::same(3)).show(ui, |ui| {
-            let height = PANEL_HEIGHT - 16.0 - 7.0 * 3.0 - 22.0 - 24.0 - 24.0;
+            let height = total - 7.0 * 3.0 - 22.0 - 24.0 - 24.0;
             ui.set_width(ui.available_width());
             let edit = egui::TextEdit::multiline(&mut state.prompt).hint_text(tr("Primer prompt (opcional)")).font(FontId::monospace(fs(11.0))).desired_rows(4).frame(false).desired_width(f32::INFINITY).interactive(!busy);
             ui.add_sized(vec2(ui.available_width(), height.max(40.0)), edit);
@@ -481,6 +485,14 @@ pub fn compose_panel(ui: &mut Ui, monitor: &Monitor, prefs: &mut Prefs, state: &
         });
     });
     action
+}
+
+/// The console side in full screen while no room is chosen.
+pub fn console_placeholder(ui: &mut Ui) {
+    let rect = ui.available_rect_before_wrap();
+    let center = rect.center();
+    ui.painter().text(center - vec2(0.0, 10.0), Align2::CENTER_CENTER, tr("Elige una sala para ver su consola"), FontId::monospace(fs(12.0)), DIM);
+    ui.painter().text(center + vec2(0.0, 10.0), Align2::CENTER_CENTER, tr("esc vuelve a la ventana"), FontId::monospace(fs(10.0)), alpha(DIM, 0.6));
 }
 
 // ---- Activity log
@@ -601,13 +613,19 @@ pub struct ControlAction {
     pub compose: bool,
     pub log: bool,
     pub sound: bool,
+    pub fullscreen: bool,
     pub minimize: bool,
     pub close: bool,
 }
 
+/// The keys that toggle full screen, for the tooltips.
+pub fn fullscreen_keys() -> &'static str {
+    if cfg!(target_os = "macos") { "⌃⌘F" } else { "F11" }
+}
+
 /// The buttons that appear at the top-right on hover.
-pub fn controls(ctx: &Context, sounds_on: bool, log_open: bool) -> ControlAction {
-    let mut action = ControlAction { compose: false, log: false, sound: false, minimize: false, close: false };
+pub fn controls(ctx: &Context, sounds_on: bool, log_open: bool, fullscreen: bool) -> ControlAction {
+    let mut action = ControlAction { compose: false, log: false, sound: false, fullscreen: false, minimize: false, close: false };
     egui::Area::new(egui::Id::new("controls")).anchor(Align2::RIGHT_TOP, vec2(-6.0, 6.0)).order(egui::Order::Foreground).show(ctx, |ui| {
         Frame::new().fill(alpha(Color32::BLACK, 0.7)).corner_radius(CornerRadius::same(14)).inner_margin(Margin::symmetric(9, 4)).show(ui, |ui| {
             ui.horizontal(|ui| {
@@ -616,6 +634,8 @@ pub fn controls(ctx: &Context, sounds_on: bool, log_open: bool) -> ControlAction
                 if flat_button(ui, mono("📜", 16.0).color(alpha(Color32::from_rgb(237, 214, 158), if log_open { 1.0 } else { 0.85 }))).on_hover_text(tr("Registro de actividad")).clicked() { action.log = true; }
                 let speaker = if sounds_on { "🔊" } else { "🔇" };
                 if flat_button(ui, mono(speaker, 16.0).color(alpha(Color32::WHITE, if sounds_on { 0.9 } else { 0.5 }))).on_hover_text(if sounds_on { tr("Silenciar sonidos") } else { tr("Activar sonidos") }).clicked() { action.sound = true; }
+                let hint = format!("{} · {}", if fullscreen { tr("Salir de pantalla completa") } else { tr("Pantalla completa") }, fullscreen_keys());
+                if flat_button(ui, mono(if fullscreen { "⤡" } else { "⤢" }, 17.0).strong().color(alpha(Color32::WHITE, 0.9))).on_hover_text(hint).clicked() { action.fullscreen = true; }
                 if flat_button(ui, mono("–", 19.0).strong().color(Color32::from_rgb(250, 189, 46))).on_hover_text(tr("Minimizar (ocultar)")).clicked() { action.minimize = true; }
                 if flat_button(ui, mono("x", 17.0).strong().color(Color32::from_rgb(242, 84, 77))).on_hover_text(tr("Cerrar")).clicked() { action.close = true; }
             });

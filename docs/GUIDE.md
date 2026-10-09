@@ -58,6 +58,10 @@ Resize the widget from its edges or the grip in its bottom-right corner: rooms w
 
 With three or more agents a bar under the rooms shows one chip per state with its count — click one to show only those rooms (the red **!** chip stays lit while anyone needs you) — and a search box (its own row) that matches project, harness, branch, folder and activity, ignoring case and accents. The chosen chip is remembered.
 
+## Full screen
+
+The ⤢ button (top-right on hover), the menu's **Full screen**, or ⌃⌘F (F11 on Linux) take the dungeon to the whole screen: the rooms fill the left side in as many whole columns as fit, with the state bar under them, and the right side is the console — the chat of the room you click, the summon panel from **+**, or a hint while nothing is chosen — at full height, so a long terminal tail and a question's options are read without scrolling. Esc closes the open chat first, then leaves full screen; so do the button, the menu and the keys. The widget comes back where it was, at its size. `--fullscreen` starts there.
+
 ## Text size
 
 ⌘+ / ⌘- (Ctrl on Linux) make the panels' text bigger or smaller, ⌘0 resets it; the menu's **Text size** does the same. The size is remembered.
@@ -66,7 +70,7 @@ With three or more agents a bar under the rooms shows one chip per state with it
 
 Close or minimize the window to keep monitoring from the menu bar (macOS) or the tray (Linux), where a pixel knight's helm marks the app; its tooltip counts the agents needing attention. A left click shows or hides the window; the menu has:
 
-- **Show / hide**, **Move back to the corner**, **Always on top** (on by default), **Open at login** (a LaunchAgent on macOS, an autostart entry on Linux).
+- **Show / hide**, **Move back to the corner**, **Always on top** (on by default), **Full screen**, **Open at login** (a LaunchAgent on macOS, an autostart entry on Linux).
 - **Sounds** and **Notifications**, each with per-moment switches.
 - **Text size**.
 - **Herdr session**: Herdr's sessions (`herdr session list`), to switch which one the dungeon watches — agents, log and selection start over — remembered; `HERDR_SESSION` still overrides it at launch. **Demo** shows fictional agents without Herdr; live mode never inserts fictional agents.
@@ -90,7 +94,7 @@ Monitors the default local session. Environment variables:
 | `HPD_REDUCE_MOTION=1` | Stop the animations (macOS Reduce Motion is honoured automatically). |
 | `HPD_NO_HERDR=1` | Pretend Herdr is not installed, to try the standalone viewer. |
 
-Command-line flags: `--demo` (fictional agents), `--diagnose` (print what Herdr reports, or the standalone scan), `--self-test`.
+Command-line flags: `--demo` (fictional agents), `--fullscreen` (start in full screen), `--diagnose` (print what Herdr reports, or the standalone scan), `--self-test`.
 
 ## Verify
 

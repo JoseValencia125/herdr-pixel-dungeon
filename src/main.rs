@@ -68,6 +68,7 @@ fn main() {
         return;
     }
     let demo = args.iter().any(|a| a == "--demo");
+    let fullscreen = args.iter().any(|a| a == "--fullscreen");
     let on_top = prefs.on_top;
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("Herdr Pixel Dungeon")
@@ -83,7 +84,7 @@ fn main() {
     }
     if on_top { viewport = viewport.with_always_on_top(); }
     let options = eframe::NativeOptions { viewport, centered: false, ..Default::default() };
-    let result = eframe::run_native("Herdr Pixel Dungeon", options, Box::new(move |cc| Ok(Box::new(App::new(cc, prefs, session, demo)))));
+    let result = eframe::run_native("Herdr Pixel Dungeon", options, Box::new(move |cc| Ok(Box::new(App::new(cc, prefs, session, demo, fullscreen)))));
     if let Err(error) = result {
         eprintln!("{error}");
         std::process::exit(1);
@@ -104,6 +105,8 @@ struct App {
     show_log: bool,
     visible: bool,
     first_frame: bool,
+    /// --fullscreen: go full screen on the first frame.
+    start_fullscreen: bool,
     /// The size we asked for; anything else is the user resizing.
     expected: Option<Vec2>,
     commanded_at: Option<Instant>,
@@ -124,10 +127,21 @@ struct App {
     installing: Option<std::sync::mpsc::Receiver<Result<String, String>>>,
     herdr_note: Option<String>,
     opened_herdr: bool,
+    /// Full screen: the rooms fill the left side, the console the right.
+    fullscreen: bool,
+    /// When full screen was last toggled: the window is animating, so its
+    /// size is neither tracked nor fitted until it settles.
+    fullscreen_at: Option<Instant>,
 }
 
+/// The console's narrowest width in full screen; the rooms get whole
+/// columns in the rest.
+const CONSOLE_MIN: f32 = 420.0;
+/// Room above the console's header in full screen, for the hover controls.
+const CONSOLE_TOP: f32 = 44.0;
+
 impl App {
-    fn new(cc: &eframe::CreationContext<'_>, prefs: Prefs, session: String, demo: bool) -> App {
+    fn new(cc: &eframe::CreationContext<'_>, prefs: Prefs, session: String, demo: bool, fullscreen: bool) -> App {
         let ctx = cc.egui_ctx.clone();
         let wake: Arc<dyn Fn() + Send + Sync> = Arc::new(move || ctx.request_repaint());
         let mut monitor = Monitor::new(session, StatusFilter::from_raw(&prefs.filter));
@@ -152,13 +166,14 @@ impl App {
             notifier: Notifier::new(),
             scene,
             assets: Assets::new(&cc.egui_ctx),
-            tray: Tray::new(&MenuState { sounds: true, sound_help: true, sound_done: true, notify: true, notify_help: true, notify_done: false, on_top: true, login: false, sessions: vec![], session: String::new(), demo: false, attention: 0, open_at_start: false, text_scale: 1.0 }, wake),
+            tray: Tray::new(&MenuState { sounds: true, sound_help: true, sound_done: true, notify: true, notify_help: true, notify_done: false, on_top: true, fullscreen: false, login: false, sessions: vec![], session: String::new(), demo: false, attention: 0, open_at_start: false, text_scale: 1.0 }, wake),
             chat: None,
             compose: ComposeState::default(),
             hud: HudState::default(),
             show_log: false,
             visible: true,
             first_frame: true,
+            start_fullscreen: fullscreen,
             expected: None,
             commanded_at: None,
             last_size: None,
@@ -174,6 +189,8 @@ impl App {
             installing: None,
             herdr_note: None,
             opened_herdr: false,
+            fullscreen: false,
+            fullscreen_at: None,
         };
         ui::set_text_scale(app.prefs.text_scale);
         app.monitor.refresh();
@@ -189,6 +206,7 @@ impl App {
             notify_help: self.prefs.notify_needs_help,
             notify_done: self.prefs.notify_finished,
             on_top: self.prefs.on_top,
+            fullscreen: self.fullscreen,
             login: self.login_enabled,
             sessions: self.monitor.sessions.clone(),
             session: self.monitor.session.clone(),
@@ -243,6 +261,8 @@ impl App {
     /// top-right corner where the user put it; a resize by the user keeps
     /// the corner opposite the one dragged (the top-left for the grip).
     fn fit_size(&mut self, ctx: &egui::Context, anchor_left: bool) {
+        // Full screen is the screen's size, whatever the rooms need.
+        if self.fullscreen || self.fullscreen_at.is_some() { return; }
         let (outer, screen) = ctx.input(|i| (i.viewport().outer_rect, i.viewport().monitor_size));
         let Some(outer) = outer else { return };
         let screen = screen.unwrap_or(vec2(1440.0, 900.0));
@@ -279,6 +299,9 @@ impl App {
     /// Watch the window: a size we did not ask for is the user resizing, and
     /// once it settles it snaps to whole rooms; a move is remembered.
     fn track_window(&mut self, ctx: &egui::Context, now: f64) {
+        // Going full screen (and back) changes the size and place without
+        // the user resizing: nothing to remember.
+        if self.fullscreen || self.fullscreen_at.is_some() { return; }
         let Some(outer) = ctx.input(|i| i.viewport().outer_rect) else { return };
         let size = outer.size();
         let settled = self.commanded_at.map(|t| t.elapsed() > Duration::from_millis(600)).unwrap_or(true);
@@ -319,6 +342,33 @@ impl App {
         self.last_outer = Some(outer);
     }
 
+    // ---- Full screen
+
+    /// Fill the screen with the rooms on the left and the console on the
+    /// right, or go back to the widget where it was.
+    fn set_fullscreen(&mut self, ctx: &egui::Context, on: bool) {
+        if self.fullscreen == on { return; }
+        self.fullscreen = on;
+        self.fullscreen_at = Some(Instant::now());
+        self.resize_start = None;
+        self.size_changed_at = None;
+        self.grip = false;
+        ctx.send_viewport_cmd(ViewportCommand::Fullscreen(on));
+        if on { self.show(ctx); }
+    }
+
+    /// Once the window has settled after a toggle, the widget's size is
+    /// fitted to its rooms again (full screen needs nothing).
+    fn settle_fullscreen(&mut self) -> bool {
+        let Some(at) = self.fullscreen_at else { return false };
+        if at.elapsed() < Duration::from_millis(900) { return false; }
+        self.fullscreen_at = None;
+        self.expected = None;
+        self.last_size = None;
+        self.last_outer = None;
+        !self.fullscreen
+    }
+
     // ---- Showing and hiding
 
     fn show(&mut self, ctx: &egui::Context) {
@@ -348,7 +398,8 @@ impl App {
     fn handle_tray(&mut self, ctx: &egui::Context, action: TrayAction) {
         match action {
             TrayAction::Toggle => { if self.visible { self.hide(ctx) } else { self.show(ctx) } }
-            TrayAction::Reanchor => { self.anchor_to_corner(ctx); self.show(ctx); }
+            TrayAction::Reanchor => { self.set_fullscreen(ctx, false); self.anchor_to_corner(ctx); self.show(ctx); }
+            TrayAction::Fullscreen => { let on = !self.fullscreen; self.set_fullscreen(ctx, on); }
             TrayAction::OnTop => {
                 self.prefs.on_top = !self.prefs.on_top;
                 self.prefs.save();
@@ -441,9 +492,14 @@ impl eframe::App for App {
             if now > 2.0 && now < 6.0 && self.visible { self.hide(ctx); }
             if now > 6.0 && !self.visible { self.show(ctx); }
         }
+        // HPD_TEST_SELECT=1: open the first room's chat after 1 s (for captures).
+        if std::env::var("HPD_TEST_SELECT").is_ok() && now > 1.0 && now < 1.2 && self.monitor.selected.is_none() {
+            if let Some(first) = self.monitor.visible_agents().first() { self.monitor.select(Some(first.id.clone())); }
+        }
         if self.first_frame {
             self.first_frame = false;
             self.restore_position(ctx);
+            if self.start_fullscreen { self.set_fullscreen(ctx, true); }
         }
         let mut needs_fit = self.monitor.poll();
         // Sounds and notifications for what just changed.
@@ -462,6 +518,15 @@ impl eframe::App for App {
         if bigger { self.set_text_scale(self.prefs.text_scale + 0.1); }
         if smaller { self.set_text_scale(self.prefs.text_scale - 0.1); }
         if normal { self.set_text_scale(1.0); }
+        // F11 (and ⌃⌘F on macOS) toggle full screen; esc leaves it once
+        // nothing else is open to close.
+        let (toggle, escape) = ctx.input(|i| {
+            let mac = cfg!(target_os = "macos") && i.modifiers.mac_cmd && i.modifiers.ctrl && i.key_pressed(egui::Key::F);
+            (i.key_pressed(egui::Key::F11) || mac, i.key_pressed(egui::Key::Escape))
+        });
+        if toggle { let on = !self.fullscreen; self.set_fullscreen(ctx, on); }
+        if escape && self.fullscreen && !self.panel_open() && !self.hud.searching && !self.show_log { self.set_fullscreen(ctx, false); }
+        if self.settle_fullscreen() { needs_fit = true; }
         // The installer's outcome.
         if let Some(rx) = &self.installing {
             if let Ok(result) = rx.try_recv() {
@@ -504,14 +569,28 @@ impl eframe::App for App {
         let panel_open = self.panel_open();
         let shows_hud = self.monitor.shows_hud();
 
+        let fullscreen = self.fullscreen;
         egui::CentralPanel::default().frame(Frame::NONE).show(ctx, |ui| {
             let full = ui.max_rect();
-            ui.painter().rect_filled(full, CornerRadius::same(14), BACKGROUND);
-            let panel_h = if panel_open { PANEL_HEIGHT } else { 0.0 };
+            // The widget has rounded corners; full screen has the screen's.
+            let round = if fullscreen { 0 } else { 14 };
+            ui.painter().rect_filled(full, CornerRadius::same(round), BACKGROUND);
             let hud_h = if shows_hud { ui::hud_height(&self.hud, &self.monitor) } else { 0.0 };
-            let scene_rect = Rect::from_min_max(full.min, egui::pos2(full.max.x, full.max.y - panel_h - hud_h));
-            let hud_rect = Rect::from_min_max(egui::pos2(full.min.x, scene_rect.max.y), egui::pos2(full.max.x, scene_rect.max.y + hud_h));
-            let panel_rect = Rect::from_min_max(egui::pos2(full.min.x, hud_rect.max.y), full.max);
+            // The rooms, the HUD under them and the chat or summon panel:
+            // stacked in the widget; side by side in full screen, where the
+            // rooms take whole columns on the left and the console the rest.
+            let (scene_rect, hud_rect, panel_rect) = if fullscreen {
+                let columns = scene::columns_fitting(full.width() - CONSOLE_MIN);
+                let split = full.min.x + scene::width_for(columns);
+                let scene_rect = Rect::from_min_max(full.min, egui::pos2(split, full.max.y - hud_h));
+                let hud_rect = Rect::from_min_max(egui::pos2(full.min.x, scene_rect.max.y), egui::pos2(split, full.max.y));
+                (scene_rect, hud_rect, Rect::from_min_max(egui::pos2(split, full.min.y), full.max))
+            } else {
+                let panel_h = if panel_open { PANEL_HEIGHT } else { 0.0 };
+                let scene_rect = Rect::from_min_max(full.min, egui::pos2(full.max.x, full.max.y - panel_h - hud_h));
+                let hud_rect = Rect::from_min_max(egui::pos2(full.min.x, scene_rect.max.y), egui::pos2(full.max.x, scene_rect.max.y + hud_h));
+                (scene_rect, hud_rect, Rect::from_min_max(egui::pos2(full.min.x, hud_rect.max.y), full.max))
+            };
             // The dungeon.
             let response = ui.scope_builder(egui::UiBuilder::new().max_rect(scene_rect), |ui| {
                 ui.set_clip_rect(scene_rect);
@@ -519,7 +598,7 @@ impl eframe::App for App {
             }).inner;
             if note.is_some() {
                 // The last known rooms stay, faded, while the data is not live.
-                ui.painter().rect_filled(scene_rect, CornerRadius { nw: 14, ne: 14, sw: 0, se: 0 }, Color32::from_rgba_unmultiplied(13, 15, 17, 90));
+                ui.painter().rect_filled(scene_rect, CornerRadius { nw: round, ne: round, sw: 0, se: 0 }, Color32::from_rgba_unmultiplied(13, 15, 17, 90));
             }
             if let Some(id) = response.clicked {
                 let next = if self.monitor.selected.as_deref() == Some(&id) { None } else { Some(id) };
@@ -528,7 +607,7 @@ impl eframe::App for App {
             if let Some(id) = response.finish { self.confirm_finish(&id); }
             // The HUD.
             if shows_hud {
-                let bottom = if panel_open { 0 } else { 14 };
+                let bottom = if panel_open || fullscreen { 0 } else { 14 };
                 ui.painter().rect_filled(hud_rect, CornerRadius { nw: 0, ne: 0, sw: bottom, se: bottom }, ui::HUD_FILL);
                 ui.painter().hline(hud_rect.x_range(), hud_rect.min.y, egui::Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, 20)));
                 let inner = Rect::from_min_max(egui::pos2(hud_rect.min.x + 8.0, hud_rect.min.y), egui::pos2(hud_rect.max.x - 8.0, hud_rect.max.y));
@@ -536,14 +615,22 @@ impl eframe::App for App {
                 if action.toggle_log { self.show_log = !self.show_log; }
                 if action.compose { let on = !self.monitor.composing; self.monitor.set_composing(on); }
             }
-            // The chat or summon panel.
-            if panel_open {
+            // The chat or summon panel: under the rooms while one is open;
+            // the console side in full screen, always.
+            if panel_open || fullscreen {
                 let line = if self.monitor.composing { Color32::from_rgb(140, 217, 115) } else {
                     self.chat.as_ref().and_then(|c| self.monitor.agents.iter().find(|a| a.id == c.agent_id)).map(|a| scene::agent_color(&a.status)).unwrap_or(Color32::GRAY)
                 };
-                ui.painter().rect_filled(panel_rect, CornerRadius { nw: 0, ne: 0, sw: 14, se: 14 }, ui::PANEL_FILL);
-                ui.painter().hline(panel_rect.x_range(), panel_rect.min.y, egui::Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(line.r(), line.g(), line.b(), 180)));
-                let inner = Rect::from_min_max(egui::pos2(panel_rect.min.x + 10.0, panel_rect.min.y + 8.0), egui::pos2(panel_rect.max.x - 10.0, panel_rect.max.y - 8.0));
+                let edge = Color32::from_rgba_unmultiplied(line.r(), line.g(), line.b(), if panel_open { 180 } else { 60 });
+                let inner = if fullscreen {
+                    ui.painter().rect_filled(panel_rect, CornerRadius::ZERO, ui::PANEL_FILL);
+                    ui.painter().vline(panel_rect.min.x, panel_rect.y_range(), egui::Stroke::new(1.0_f32, edge));
+                    Rect::from_min_max(egui::pos2(panel_rect.min.x + 14.0, panel_rect.min.y + CONSOLE_TOP), egui::pos2(panel_rect.max.x - 14.0, panel_rect.max.y - 12.0))
+                } else {
+                    ui.painter().rect_filled(panel_rect, CornerRadius { nw: 0, ne: 0, sw: 14, se: 14 }, ui::PANEL_FILL);
+                    ui.painter().hline(panel_rect.x_range(), panel_rect.min.y, egui::Stroke::new(1.0_f32, edge));
+                    Rect::from_min_max(egui::pos2(panel_rect.min.x + 10.0, panel_rect.min.y + 8.0), egui::pos2(panel_rect.max.x - 10.0, panel_rect.max.y - 8.0))
+                };
                 ui.scope_builder(egui::UiBuilder::new().max_rect(inner), |ui| {
                     ui.set_clip_rect(panel_rect);
                     if self.monitor.composing {
@@ -554,6 +641,8 @@ impl eframe::App for App {
                             let action = ui::chat_panel(ui, &self.monitor, &agent, chat, now);
                             if action.close { self.monitor.select(None); }
                         }
+                    } else {
+                        ui::console_placeholder(ui);
                     }
                 });
             }
@@ -568,16 +657,20 @@ impl eframe::App for App {
             if action.dismiss { self.banner_dismissed = true; }
         } else if let Some((text, lost)) = &note { ui::connection_banner(ctx, text, *lost); }
         if hovering || self.show_log {
-            let action = ui::controls(ctx, self.prefs.sound_enabled, self.show_log);
+            let action = ui::controls(ctx, self.prefs.sound_enabled, self.show_log, self.fullscreen);
             if action.compose { let on = !self.monitor.composing; self.monitor.set_composing(on); }
             if action.log { self.show_log = !self.show_log; }
             if action.sound { self.prefs.sound_enabled = !self.prefs.sound_enabled; self.prefs.save(); }
+            if action.fullscreen { let on = !self.fullscreen; self.set_fullscreen(ctx, on); }
             if action.minimize { self.hide(ctx); }
             if action.close { ctx.send_viewport_cmd(ViewportCommand::Close); }
         }
         if self.show_log && ui::activity_log(ctx, &self.monitor.events) { self.show_log = false; }
-        ui::drag_handle(ctx);
-        if ui::resize_grip(ctx, hovering) { self.grip = true; }
+        // Full screen has nothing to drag or resize.
+        if !self.fullscreen {
+            ui::drag_handle(ctx);
+            if ui::resize_grip(ctx, hovering) { self.grip = true; }
+        }
 
         if self.monitor.changed { self.monitor.changed = false; needs_fit = true; }
         if self.monitor.filter.raw() != self.prefs.filter { self.prefs.filter = self.monitor.filter.raw().into(); self.prefs.save(); }
