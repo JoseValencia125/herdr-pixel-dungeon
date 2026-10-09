@@ -288,7 +288,7 @@ pub fn chat_panel(ui: &mut Ui, monitor: &Monitor, agent: &Agent, state: &mut Cha
             let hint = if agent.status == "blocked" { trf("↑↓ y ⏎ eligen · o responde a {}…", &[&agent.name]) } else { trf("Escribir a {}…", &[&agent.name]) };
             let buttons_width = match agent.status.as_str() { "blocked" => 150.0, "working" => 80.0, _ => 26.0 };
             let mut draft = state.draft.clone();
-            let edit = egui::TextEdit::singleline(&mut draft).hint_text(hint).font(FontId::proportional(12.0)).desired_width(ui.available_width() - buttons_width).interactive(!sending);
+            let edit = egui::TextEdit::singleline(&mut draft).hint_text(hint).font(FontId::monospace(12.0)).desired_width(ui.available_width() - buttons_width).interactive(!sending);
             let response = ui.add(edit);
             if state.focus { response.request_focus(); state.focus = false; }
             let submitted = response.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));

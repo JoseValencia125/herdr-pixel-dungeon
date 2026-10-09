@@ -820,15 +820,31 @@ pub fn file_tail(path: &str, bytes: u64) -> Option<String> {
 }
 
 /// The text of the latest assistant message that has any, in the tail of a
-/// Claude Code transcript.
+/// Claude Code transcript. A message is written as one row per content
+/// block, so every row sharing the last one's message id is joined.
 pub fn last_assistant_text(tail: &str) -> Option<String> {
-    for line in tail.lines().rev() {
+    let rows: Vec<&str> = tail.lines().collect();
+    let mut last_id: Option<String> = None;
+    for line in rows.iter().rev() {
         let Some(content) = assistant_content(line) else { continue };
         let text: Vec<&str> = content.iter().filter(|c| str_of(c, "type") == Some("text")).filter_map(|c| str_of(c, "text")).collect();
-        let text = text.join("\n");
-        if !text.is_empty() { return Some(text); }
+        if text.join("").is_empty() { continue; }
+        last_id = serde_json::from_str::<Value>(line).ok().and_then(|r| r.get("message")?.get("id")?.as_str().map(str::to_string));
+        if last_id.is_none() { return Some(text.join("\n")); }
+        break;
     }
-    None
+    let id = last_id?;
+    let mut parts: Vec<String> = vec![];
+    for line in rows {
+        let Some(content) = assistant_content(line) else { continue };
+        let same = serde_json::from_str::<Value>(line).ok().and_then(|r| r.get("message")?.get("id")?.as_str().map(str::to_string)) == Some(id.clone());
+        if !same { continue; }
+        for c in content.iter().filter(|c| str_of(c, "type") == Some("text")) {
+            if let Some(t) = str_of(c, "text") { if !t.is_empty() { parts.push(t.to_string()); } }
+        }
+    }
+    let joined = parts.join("\n");
+    if joined.is_empty() { None } else { Some(joined) }
 }
 
 /// The question in an assistant message: from the line that asks it (the
