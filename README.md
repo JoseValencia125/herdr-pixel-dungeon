@@ -93,4 +93,4 @@ Created by **Nacho Valencia**: code and all pixel art. MIT, see [LICENSE](LICENS
 
 Inspired by **[Claude Dungeon](https://github.com/thousandsky2024/claude-pixel-agent-web)** by [thousandsky2024](https://github.com/thousandsky2024), which first pictured coding agents as dungeon heroes. No code or artwork from it is included.
 
-[Herdr](https://github.com/herdrdev/herdr) is by the Herdr contributors and is installed separately. Independent project; no endorsement or affiliation implied.
+[Herdr](https://github.com/herdrdev/herdr) is by the Herdr contributors and is installed separately. Herdr Pixel Dungeon is an independent, community-made project: it is not affiliated with, endorsed by or sponsored by Herdr, Inc. "Herdr" is used only to describe what the app connects to; Herdr and other names are trademarks of their respective owners.

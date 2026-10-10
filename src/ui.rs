@@ -483,7 +483,7 @@ pub fn chat_panel(ui: &mut Ui, monitor: &Monitor, agent: &Agent, state: &mut Cha
 /// widget's own row (a line and a half tall).
 fn input_row(ui: &mut Ui, monitor: &Monitor, agent: &Agent, state: &mut ChatState, menu: &MenuOptions, sending: bool, font: f32, roomy: bool) {
     ui.horizontal(|ui| {
-        let hint = if agent.status == "blocked" { trf("↑↓ y ⏎ eligen · o responde a {}…", &[&agent.name]) } else { trf("Escribir a {}…", &[&agent.name]) };
+        let hint = if agent.status == "blocked" { trf("↑↓ y Enter eligen · o responde a {}…", &[&agent.name]) } else { trf("Escribir a {}…", &[&agent.name]) };
         let buttons_width = match agent.status.as_str() { "blocked" => 150.0, "working" => 80.0, _ => 26.0 };
         let mut draft = state.draft.clone();
         // The "/" menu: the harness's commands matching what is typed so
