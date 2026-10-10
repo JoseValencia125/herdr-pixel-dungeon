@@ -18,4 +18,4 @@ Inspired by [Claude Dungeon / claude-pixel-agent-web](https://github.com/thousan
 
 [Herdr](https://github.com/herdrdev/herdr) provides the separately installed local runtime and CLI snapshot API. Herdr is not bundled. The standalone viewer's table of agent process names (`src/standalone.rs`) follows Herdr's `src/detect/mod.rs`, copyright the Herdr authors, Apache License 2.0. Vendor names only identify the agents Herdr reports.
 
-Independent project; no affiliation with or endorsement by Herdr, Anthropic, OpenAI, Amazon, Google or thousandsky2024.
+Independent project; no affiliation with, endorsement by or sponsorship from Herdr, Inc., Anthropic, OpenAI, Amazon, Google or thousandsky2024. "Herdr" and the other names appear only to describe what the app connects to or displays, and are trademarks of their respective owners.

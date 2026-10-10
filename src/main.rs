@@ -577,7 +577,7 @@ impl App {
             TrayAction::ConsoleSmaller => self.step_console_scale(-1),
             TrayAction::ConsoleNormal => self.set_console_scale(1.0),
             TrayAction::About => {
-                rfd::MessageDialog::new().set_title(tr("Acerca de Herdr Pixel Dungeon")).set_description(format!("Herdr Pixel Dungeon {}\n{}", env!("CARGO_PKG_VERSION"), tr("Creado por Nacho Valencia.\nCódigo y pixel art originales · MIT."))).show();
+                rfd::MessageDialog::new().set_title(tr("Acerca de Herdr Pixel Dungeon")).set_description(format!("Herdr Pixel Dungeon {}\n{}", env!("CARGO_PKG_VERSION"), tr("Creado por Nacho Valencia.\nCódigo y pixel art originales · MIT.\n\nProyecto independiente, sin afiliación con Herdr, Inc."))).show();
             }
             TrayAction::Quit => ctx.send_viewport_cmd(ViewportCommand::Close),
         }

@@ -2,6 +2,8 @@
 
 Everything the README leaves out: how the dungeon reads the agents, what each panel does, the menu, configuration, privacy and the standalone mode.
 
+Herdr Pixel Dungeon is an independent project, not affiliated with or endorsed by Herdr, Inc.; "Herdr" names the runtime the app connects to.
+
 ## How the rooms are kept current
 
 The app keeps one connection to Herdr's socket subscribed to its events (`events.subscribe`: each agent pane's status, panes appearing, changing or closing, workspaces renamed or closed), so a change shows up the moment it happens. `herdr api snapshot` runs only to bootstrap, after a structural change, once a minute to reconcile, and — if the event connection drops — every second while it reconnects. Local enrichment (git branch, background jobs, subagents, tools) is read from files each second without starting processes.

@@ -749,7 +749,7 @@ impl Monitor {
                 } else if agent.status == "blocked" {
                     "● Bash(rm -rf build && make)\n  Do you want to proceed?\n❯ 1. Yes\n  2. Yes, and don't ask again\n  3. No, and tell Claude what to do".to_string()
                 } else {
-                    format!("● {}\n  ⎿ Leyendo archivos del proyecto…", agent.activity)
+                    format!("● {}\n  ⎿ {}", agent.activity, tr("Leyendo archivos del proyecto…"))
                 }
             } else {
                 run_herdr(&["agent", "read", &agent.id, "--source", "recent", "--lines", "60", "--format", "text"], &session, Duration::from_secs(4))
